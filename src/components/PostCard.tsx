@@ -1,11 +1,11 @@
 import { Heart, MessageCircle, Send, Bookmark, MoreHorizontal } from "lucide-react";
-import { motion } from "framer-motion";
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import CommentsSheet from "./CommentsSheet";
+import { sendLikeNotification, sendFollowNotification } from "@/lib/notifications";
 
 interface PostCardProps {
   postId: string;
@@ -83,6 +83,9 @@ const PostCard = ({
             from_user_id: user.id,
             post_id: postId,
           });
+          // Send browser notification
+          const { data: profile } = await supabase.from("profiles").select("username").eq("user_id", user.id).maybeSingle();
+          if (profile) sendLikeNotification(profile.username);
         }
         setLikeCount(likeCount + 1);
       }
@@ -129,6 +132,9 @@ const PostCard = ({
           type: "follow",
           from_user_id: user.id,
         });
+        // Send browser notification
+        const { data: profile } = await supabase.from("profiles").select("username").eq("user_id", user.id).maybeSingle();
+        if (profile) sendFollowNotification(profile.username);
       }
       setIsFollowing(!isFollowing);
       toast({ title: isFollowing ? "Unfollowed" : "Following!" });
@@ -180,15 +186,14 @@ const PostCard = ({
           </button>
           <div className="flex items-center gap-1">
             {user && userId !== user.id && (
-              <motion.button
+              <button
                 onClick={handleFollow}
-                whileTap={{ scale: 0.9 }}
-                className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all ${
+                className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all active:scale-95 ${
                   isFollowing ? "bg-secondary text-muted-foreground" : "bg-primary text-primary-foreground"
                 }`}
               >
                 {isFollowing ? "Following" : "Follow"}
-              </motion.button>
+              </button>
             )}
             <button className="p-2 hover:bg-secondary rounded-full transition-colors">
               <MoreHorizontal className="w-5 h-5 text-muted-foreground" />
@@ -205,11 +210,11 @@ const PostCard = ({
         <div className="p-3">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-4">
-              <motion.button onClick={handleLike} whileTap={{ scale: 0.8 }} className="p-1">
+              <button onClick={handleLike} className="p-1 active:scale-90 transition-transform">
                 <Heart
                   className={`w-6 h-6 transition-colors ${isLiked ? "fill-red-500 text-red-500" : "text-foreground"}`}
                 />
-              </motion.button>
+              </button>
               <button onClick={() => setCommentsOpen(true)} className="p-1">
                 <MessageCircle className="w-6 h-6 text-foreground" />
               </button>
@@ -217,9 +222,9 @@ const PostCard = ({
                 <Send className="w-6 h-6 text-foreground" />
               </button>
             </div>
-            <motion.button onClick={handleSave} whileTap={{ scale: 0.8 }} className="p-1">
+            <button onClick={handleSave} className="p-1 active:scale-90 transition-transform">
               <Bookmark className={`w-6 h-6 transition-colors ${isSaved ? "fill-foreground text-foreground" : "text-foreground"}`} />
-            </motion.button>
+            </button>
           </div>
 
           {/* Likes */}
