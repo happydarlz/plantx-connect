@@ -42,10 +42,14 @@ const Search = () => {
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
 
   useEffect(() => {
-    if (query.length > 0 || selectedTag) {
-      performSearch();
-    } else {
-      fetchAllPlants();
+    if (activeTab === "plants") {
+      if (query.length > 0 || selectedTag) {
+        performSearch();
+      } else {
+        fetchAllPlants();
+      }
+    } else if (activeTab === "nurseries") {
+      fetchAllNurseries();
     }
   }, [query, activeTab, selectedTag]);
 
@@ -74,6 +78,30 @@ const Search = () => {
       setPlants(plantsWithProfiles);
     } catch (error) {
       console.error("Error fetching plants:", error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const fetchAllNurseries = async () => {
+    setIsLoading(true);
+    try {
+      let nurseriesQuery = supabase
+        .from("profiles")
+        .select("user_id, username, nursery_name, profile_image, bio, address")
+        .order("created_at", { ascending: false })
+        .limit(50);
+
+      if (query) {
+        nurseriesQuery = nurseriesQuery.or(`username.ilike.%${query}%,nursery_name.ilike.%${query}%,address.ilike.%${query}%`);
+      }
+
+      const { data, error } = await nurseriesQuery;
+
+      if (error) throw error;
+      setUsers(data || []);
+    } catch (error) {
+      console.error("Error fetching nurseries:", error);
     } finally {
       setIsLoading(false);
     }
