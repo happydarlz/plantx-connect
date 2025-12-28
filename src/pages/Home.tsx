@@ -1,14 +1,15 @@
 import { useEffect, useState } from "react";
-import { Bell, LogOut } from "lucide-react";
+import { Bell } from "lucide-react";
 import { motion } from "framer-motion";
 import PlantXLogo from "@/components/PlantXLogo";
 import StoryCircle from "@/components/StoryCircle";
 import PostCard from "@/components/PostCard";
 import BottomNav from "@/components/BottomNav";
+import ChatList from "@/components/ChatList";
+import NotificationsSheet from "@/components/NotificationsSheet";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { useNavigate } from "react-router-dom";
-import { useToast } from "@/hooks/use-toast";
 
 interface Post {
   id: string;
@@ -35,12 +36,13 @@ interface Story {
 }
 
 const Home = () => {
-  const { profile, signOut, user } = useAuth();
+  const { profile, user } = useAuth();
   const navigate = useNavigate();
-  const { toast } = useToast();
   const [posts, setPosts] = useState<Post[]>([]);
   const [stories, setStories] = useState<Story[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
 
   useEffect(() => {
     if (!user) {
@@ -50,7 +52,43 @@ const Home = () => {
 
     fetchPosts();
     fetchStories();
+    fetchUnreadCount();
+
+    // Subscribe to realtime post updates
+    const postChannel = supabase
+      .channel('home-posts')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'posts' },
+        () => fetchPosts()
+      )
+      .subscribe();
+
+    // Subscribe to notifications
+    const notifChannel = supabase
+      .channel('home-notifications')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'notifications', filter: `user_id=eq.${user.id}` },
+        () => fetchUnreadCount()
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(postChannel);
+      supabase.removeChannel(notifChannel);
+    };
   }, [user, navigate]);
+
+  const fetchUnreadCount = async () => {
+    if (!user) return;
+    const { count } = await supabase
+      .from("notifications")
+      .select("id", { count: "exact" })
+      .eq("user_id", user.id)
+      .eq("is_read", false);
+    setUnreadCount(count || 0);
+  };
 
   const fetchPosts = async () => {
     try {
@@ -62,7 +100,6 @@ const Home = () => {
 
       if (error) throw error;
 
-      // Get profile data and counts for each post
       const postsWithCounts = await Promise.all(
         (data || []).map(async (post) => {
           const [likesResult, commentsResult, profileResult] = await Promise.all([
@@ -89,14 +126,13 @@ const Home = () => {
   };
 
   const fetchStories = async () => {
-    // Fetch recent stories
+    // Stories cleanup happens via expires_at filter
     const { data: storiesData } = await supabase
       .from("stories")
       .select("id, user_id, image_url")
       .gte("expires_at", new Date().toISOString())
       .order("created_at", { ascending: false });
 
-    // Group by user and get unique users with profiles
     const userStories = new Map();
     
     for (const story of storiesData || []) {
@@ -116,7 +152,6 @@ const Home = () => {
       }
     }
 
-    // Add own story first
     const ownStory: Story = {
       id: "own",
       name: "Your Story",
@@ -126,15 +161,6 @@ const Home = () => {
     };
 
     setStories([ownStory, ...Array.from(userStories.values())]);
-  };
-
-  const handleSignOut = async () => {
-    await signOut();
-    toast({
-      title: "Signed out",
-      description: "See you next time! 🌱",
-    });
-    navigate("/auth");
   };
 
   const formatTimeAgo = (date: string) => {
@@ -148,16 +174,9 @@ const Home = () => {
     return `${days}d ago`;
   };
 
-  // Mock stories if none exist
   const displayStories = stories.length > 1 ? stories : [
     { id: "own", name: "Your Story", image: profile?.profile_image || "https://images.unsplash.com/photo-1466781783364-36c955e42a7f?w=150&h=150&fit=crop", isOwn: true, hasStory: false },
-    { id: "1", name: "Green Haven", image: "https://images.unsplash.com/photo-1416879595882-3373a0480b5b?w=150&h=150&fit=crop", hasStory: true },
-    { id: "2", name: "Plant Paradise", image: "https://images.unsplash.com/photo-1459411552884-841db9b3cc2a?w=150&h=150&fit=crop", hasStory: true },
-    { id: "3", name: "Urban Garden", image: "https://images.unsplash.com/photo-1463936575829-25148e1db1b8?w=150&h=150&fit=crop", hasStory: true },
   ];
-
-  // Mock posts if none exist
-  const displayPosts = posts.length > 0 ? posts : [];
 
   return (
     <div className="min-h-screen bg-background pb-20">
@@ -165,20 +184,22 @@ const Home = () => {
       <header className="sticky top-0 bg-background/95 backdrop-blur-sm z-40 px-4 py-3 border-b border-border">
         <div className="flex items-center justify-between">
           <PlantXLogo size="sm" />
-          <div className="flex items-center gap-2">
-            <button className="relative p-2 hover:bg-secondary rounded-full transition-colors">
-              <Bell className="w-6 h-6 text-foreground" strokeWidth={1.5} />
-              <span className="absolute top-1 right-1 w-2 h-2 bg-primary rounded-full" />
-            </button>
-            <button 
-              onClick={handleSignOut}
-              className="p-2 hover:bg-secondary rounded-full transition-colors"
-            >
-              <LogOut className="w-5 h-5 text-muted-foreground" strokeWidth={1.5} />
-            </button>
-          </div>
+          <button 
+            onClick={() => setNotificationsOpen(true)}
+            className="relative p-2 hover:bg-secondary rounded-full transition-colors"
+          >
+            <Bell className="w-6 h-6 text-foreground" strokeWidth={1.5} />
+            {unreadCount > 0 && (
+              <span className="absolute top-0 right-0 w-5 h-5 bg-primary rounded-full flex items-center justify-center text-[10px] font-bold text-primary-foreground">
+                {unreadCount > 9 ? "9+" : unreadCount}
+              </span>
+            )}
+          </button>
         </div>
       </header>
+
+      {/* Chats at top */}
+      <ChatList />
 
       {/* Stories */}
       <section className="border-b border-border">
@@ -211,8 +232,8 @@ const Home = () => {
               transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
             />
           </div>
-        ) : displayPosts.length > 0 ? (
-          displayPosts.map((post, index) => (
+        ) : posts.length > 0 ? (
+          posts.map((post, index) => (
             <motion.div
               key={post.id}
               initial={{ opacity: 0, y: 20 }}
@@ -220,6 +241,8 @@ const Home = () => {
               transition={{ delay: index * 0.1 }}
             >
               <PostCard
+                postId={post.id}
+                userId={post.user_id}
                 nurseryName={post.profiles?.nursery_name || "Unknown Nursery"}
                 username={post.profiles?.username || "unknown"}
                 nurseryImage={post.profiles?.profile_image || "https://images.unsplash.com/photo-1416879595882-3373a0480b5b?w=150&h=150&fit=crop"}
@@ -240,6 +263,7 @@ const Home = () => {
         )}
       </section>
 
+      <NotificationsSheet open={notificationsOpen} onOpenChange={setNotificationsOpen} />
       <BottomNav />
     </div>
   );
