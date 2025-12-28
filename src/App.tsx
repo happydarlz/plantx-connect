@@ -11,7 +11,9 @@ import Home from "./pages/Home";
 import Search from "./pages/Search";
 import Create from "./pages/Create";
 import Chat from "./pages/Chat";
+import Reels from "./pages/Reels";
 import Profile from "./pages/Profile";
+import UserProfile from "./pages/UserProfile";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -32,7 +34,9 @@ const App = () => (
               <Route path="/search" element={<Search />} />
               <Route path="/create" element={<Create />} />
               <Route path="/chat" element={<Chat />} />
+              <Route path="/reels" element={<Reels />} />
               <Route path="/profile" element={<Profile />} />
+              <Route path="/user/:username" element={<UserProfile />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
           </div>
