@@ -3,6 +3,7 @@ import { Bell, MessageCircle } from "lucide-react";
 import { motion } from "framer-motion";
 import PlantXLogo from "@/components/PlantXLogo";
 import StoryCircle from "@/components/StoryCircle";
+import StoryViewer from "@/components/StoryViewer";
 import PostCard from "@/components/PostCard";
 import BottomNav from "@/components/BottomNav";
 import ChatList from "@/components/ChatList";
@@ -31,6 +32,7 @@ interface Story {
   id: string;
   name: string;
   image: string;
+  userId: string;
   isOwn?: boolean;
   hasStory?: boolean;
 }
@@ -43,6 +45,10 @@ const Home = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
+  
+  // Story viewer state
+  const [storyViewerOpen, setStoryViewerOpen] = useState(false);
+  const [selectedStory, setSelectedStory] = useState<Story | null>(null);
 
   useEffect(() => {
     if (!user) {
@@ -54,24 +60,14 @@ const Home = () => {
     fetchStories();
     fetchUnreadCount();
 
-    // Subscribe to realtime post updates
     const postChannel = supabase
       .channel('home-posts')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'posts' },
-        () => fetchPosts()
-      )
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'posts' }, () => fetchPosts())
       .subscribe();
 
-    // Subscribe to notifications
     const notifChannel = supabase
       .channel('home-notifications')
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'notifications', filter: `user_id=eq.${user.id}` },
-        () => fetchUnreadCount()
-      )
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notifications', filter: `user_id=eq.${user.id}` }, () => fetchUnreadCount())
       .subscribe();
 
     return () => {
@@ -126,7 +122,6 @@ const Home = () => {
   };
 
   const fetchStories = async () => {
-    // Stories cleanup happens via expires_at filter
     const { data: storiesData } = await supabase
       .from("stories")
       .select("id, user_id, image_url")
@@ -135,8 +130,11 @@ const Home = () => {
 
     const userStories = new Map();
     
+    // Check if current user has stories
+    const hasOwnStory = storiesData?.some(s => s.user_id === user?.id);
+    
     for (const story of storiesData || []) {
-      if (!userStories.has(story.user_id)) {
+      if (!userStories.has(story.user_id) && story.user_id !== user?.id) {
         const { data: profileData } = await supabase
           .from("profiles")
           .select("nursery_name, profile_image")
@@ -145,6 +143,7 @@ const Home = () => {
           
         userStories.set(story.user_id, {
           id: story.user_id,
+          userId: story.user_id,
           name: profileData?.nursery_name || "Unknown",
           image: profileData?.profile_image || "https://images.unsplash.com/photo-1466781783364-36c955e42a7f?w=150&h=150&fit=crop",
           hasStory: true,
@@ -154,13 +153,19 @@ const Home = () => {
 
     const ownStory: Story = {
       id: "own",
+      userId: user?.id || "",
       name: "Your Story",
       image: profile?.profile_image || "https://images.unsplash.com/photo-1466781783364-36c955e42a7f?w=150&h=150&fit=crop",
       isOwn: true,
-      hasStory: false,
+      hasStory: hasOwnStory,
     };
 
     setStories([ownStory, ...Array.from(userStories.values())]);
+  };
+
+  const handleStoryClick = (story: Story) => {
+    setSelectedStory(story);
+    setStoryViewerOpen(true);
   };
 
   const formatTimeAgo = (date: string) => {
@@ -173,10 +178,6 @@ const Home = () => {
     const days = Math.floor(hours / 24);
     return `${days}d ago`;
   };
-
-  const displayStories = stories.length > 1 ? stories : [
-    { id: "own", name: "Your Story", image: profile?.profile_image || "https://images.unsplash.com/photo-1466781783364-36c955e42a7f?w=150&h=150&fit=crop", isOwn: true, hasStory: false },
-  ];
 
   return (
     <div className="min-h-screen bg-background pb-20">
@@ -206,13 +207,13 @@ const Home = () => {
         </div>
       </header>
 
-      {/* Chats at top */}
+      {/* Chats */}
       <ChatList />
 
       {/* Stories */}
       <section className="border-b border-border">
         <div className="flex gap-3 px-4 py-4 overflow-x-auto hide-scrollbar">
-          {displayStories.map((story, index) => (
+          {stories.map((story, index) => (
             <motion.div
               key={story.id}
               initial={{ opacity: 0, scale: 0.8 }}
@@ -224,6 +225,7 @@ const Home = () => {
                 image={story.image}
                 isOwn={story.isOwn}
                 hasStory={story.hasStory}
+                onClick={() => handleStoryClick(story)}
               />
             </motion.div>
           ))}
@@ -272,6 +274,22 @@ const Home = () => {
       </section>
 
       <NotificationsSheet open={notificationsOpen} onOpenChange={setNotificationsOpen} />
+      
+      {/* Story Viewer */}
+      {selectedStory && (
+        <StoryViewer
+          open={storyViewerOpen}
+          onClose={() => {
+            setStoryViewerOpen(false);
+            setSelectedStory(null);
+          }}
+          userId={selectedStory.userId}
+          userName={selectedStory.name}
+          userImage={selectedStory.image}
+          isOwn={selectedStory.isOwn}
+        />
+      )}
+      
       <BottomNav />
     </div>
   );

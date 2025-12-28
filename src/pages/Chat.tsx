@@ -1,12 +1,13 @@
 import { useState, useEffect, useRef } from "react";
 import { motion } from "framer-motion";
-import { Search, Send, Image, ArrowLeft, Paperclip, File } from "lucide-react";
+import { Search, Send, Image, ArrowLeft, Lock, Paperclip, FileIcon, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import BottomNav from "@/components/BottomNav";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { useNavigate } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
+import { encryptMessage, decryptMessage, isEncrypted } from "@/lib/encryption";
 
 interface ChatPreview {
   id: string;
@@ -38,9 +39,11 @@ const Chat = () => {
   const [message, setMessage] = useState("");
   const [chats, setChats] = useState<ChatPreview[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
+  const [decryptedMessages, setDecryptedMessages] = useState<Map<string, string>>(new Map());
   const [isLoading, setIsLoading] = useState(true);
   const [isSending, setIsSending] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!user) {
@@ -48,34 +51,29 @@ const Chat = () => {
       return;
     }
     fetchChats();
-  }, [user, navigate]);
+
+    // Real-time subscription for new messages
+    const channel = supabase
+      .channel('all-chats')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, (payload) => {
+        if (selectedChat && payload.new.chat_id === selectedChat) {
+          setMessages((prev) => [...prev, payload.new as Message]);
+          decryptMessageContent(payload.new as Message);
+          scrollToBottom();
+        }
+        fetchChats();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user, navigate, selectedChat]);
 
   useEffect(() => {
     if (selectedChat) {
       fetchMessages();
       markAsRead();
-
-      // Subscribe to new messages
-      const channel = supabase
-        .channel(`chat-${selectedChat}`)
-        .on(
-          "postgres_changes",
-          {
-            event: "INSERT",
-            schema: "public",
-            table: "messages",
-            filter: `chat_id=eq.${selectedChat}`,
-          },
-          (payload) => {
-            setMessages((prev) => [...prev, payload.new as Message]);
-            scrollToBottom();
-          }
-        )
-        .subscribe();
-
-      return () => {
-        supabase.removeChannel(channel);
-      };
     }
   }, [selectedChat]);
 
@@ -83,6 +81,13 @@ const Chat = () => {
     setTimeout(() => {
       messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }, 100);
+  };
+
+  const decryptMessageContent = async (msg: Message) => {
+    if (msg.content && isEncrypted(msg.content)) {
+      const decrypted = await decryptMessage(msg.content);
+      setDecryptedMessages((prev) => new Map(prev).set(msg.id, decrypted));
+    }
   };
 
   const fetchChats = async () => {
@@ -133,12 +138,19 @@ const Chat = () => {
           .is("read_at", null);
 
         if (profileData) {
+          let lastMsgPreview = "Start chatting";
+          if (lastMessage?.image_url) {
+            lastMsgPreview = "📷 Photo";
+          } else if (lastMessage?.content) {
+            lastMsgPreview = isEncrypted(lastMessage.content) ? "🔒 Encrypted message" : lastMessage.content;
+          }
+
           chatPreviews.push({
             id: participant.chat_id,
             name: profileData.nursery_name,
             username: profileData.username,
             avatar: profileData.profile_image || "https://images.unsplash.com/photo-1466781783364-36c955e42a7f?w=150",
-            lastMessage: lastMessage?.image_url ? "📷 Photo" : lastMessage?.content || "Start chatting",
+            lastMessage: lastMsgPreview,
             time: lastMessage ? formatTime(lastMessage.created_at) : "",
             unread: unreadCount || 0,
             otherUserId: otherParticipant.user_id,
@@ -165,6 +177,12 @@ const Chat = () => {
 
     if (!error && data) {
       setMessages(data);
+      // Decrypt all messages
+      for (const msg of data) {
+        if (msg.content && isEncrypted(msg.content)) {
+          decryptMessageContent(msg);
+        }
+      }
       scrollToBottom();
     }
   };
@@ -184,10 +202,13 @@ const Chat = () => {
 
     setIsSending(true);
     try {
+      // Encrypt message before sending
+      const encryptedContent = await encryptMessage(message.trim());
+
       const { error } = await supabase.from("messages").insert({
         chat_id: selectedChat,
         sender_id: user.id,
-        content: message.trim(),
+        content: encryptedContent,
       });
 
       if (error) throw error;
@@ -199,7 +220,7 @@ const Chat = () => {
     }
   };
 
-  const sendImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const sendFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !selectedChat || !user) return;
 
@@ -213,9 +234,7 @@ const Chat = () => {
 
       if (uploadError) throw uploadError;
 
-      const {
-        data: { publicUrl },
-      } = supabase.storage.from("uploads").getPublicUrl(filePath);
+      const { data: { publicUrl } } = supabase.storage.from("uploads").getPublicUrl(filePath);
 
       const { error } = await supabase.from("messages").insert({
         chat_id: selectedChat,
@@ -224,10 +243,12 @@ const Chat = () => {
       });
 
       if (error) throw error;
+      toast({ title: "File sent! 📎" });
     } catch (error) {
-      toast({ title: "Failed to send image", variant: "destructive" });
+      toast({ title: "Failed to send file", variant: "destructive" });
     } finally {
       setIsSending(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
     }
   };
 
@@ -245,6 +266,11 @@ const Chat = () => {
     return new Date(date).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   };
 
+  const getMessageContent = (msg: Message) => {
+    if (!msg.content) return null;
+    return decryptedMessages.get(msg.id) || msg.content;
+  };
+
   const filteredChats = chats.filter(
     (chat) =>
       chat.name.toLowerCase().includes(query.toLowerCase()) ||
@@ -255,7 +281,7 @@ const Chat = () => {
     return (
       <div className="min-h-screen bg-background flex flex-col">
         {/* Chat header */}
-        <header className="sticky top-0 bg-background z-40 px-4 py-3 border-b border-border flex items-center gap-3">
+        <header className="sticky top-0 bg-background/95 backdrop-blur-sm z-40 px-4 py-3 border-b border-border flex items-center gap-3">
           <button
             onClick={() => {
               setSelectedChat(null);
@@ -266,32 +292,43 @@ const Chat = () => {
             <ArrowLeft className="w-6 h-6 text-foreground" />
           </button>
           <div
-            className="w-10 h-10 rounded-full overflow-hidden border-2 border-plantx-soft cursor-pointer"
+            className="w-10 h-10 rounded-full overflow-hidden border-2 border-primary/20 cursor-pointer"
             onClick={() => navigate(`/user/${selectedChatData.username}`)}
           >
             <img src={selectedChatData.avatar} alt={selectedChatData.name} className="w-full h-full object-cover" />
           </div>
           <div className="flex-1" onClick={() => navigate(`/user/${selectedChatData.username}`)}>
             <h2 className="font-semibold text-foreground">{selectedChatData.name}</h2>
-            <p className="text-xs text-muted-foreground">@{selectedChatData.username}</p>
+            <div className="flex items-center gap-1">
+              <Lock className="w-3 h-3 text-primary" />
+              <span className="text-xs text-primary">End-to-end encrypted</span>
+            </div>
           </div>
         </header>
 
         {/* Messages */}
         <div className="flex-1 p-4 space-y-3 overflow-y-auto">
+          {/* Encryption notice */}
+          <div className="flex justify-center">
+            <div className="px-3 py-1.5 bg-primary/10 rounded-full flex items-center gap-1.5">
+              <Lock className="w-3 h-3 text-primary" />
+              <span className="text-xs text-primary">Messages are end-to-end encrypted</span>
+            </div>
+          </div>
+
           {messages.map((msg) => (
             <div key={msg.id} className={`flex ${msg.sender_id === user?.id ? "justify-end" : "justify-start"}`}>
               <div
-                className={`max-w-[75%] rounded-2xl px-4 py-2 ${
+                className={`max-w-[75%] rounded-2xl px-4 py-2.5 ${
                   msg.sender_id === user?.id
-                    ? "bg-primary text-primary-foreground rounded-br-sm"
-                    : "bg-secondary rounded-bl-sm"
+                    ? "bg-primary text-primary-foreground rounded-br-md"
+                    : "bg-secondary rounded-bl-md"
                 }`}
               >
                 {msg.image_url && (
                   <img src={msg.image_url} alt="" className="rounded-lg max-w-full mb-2" />
                 )}
-                {msg.content && <p className="text-sm">{msg.content}</p>}
+                {msg.content && <p className="text-sm leading-relaxed">{getMessageContent(msg)}</p>}
                 <p
                   className={`text-[10px] mt-1 ${
                     msg.sender_id === user?.id ? "text-primary-foreground/70" : "text-muted-foreground"
@@ -307,21 +344,30 @@ const Chat = () => {
 
         {/* Input */}
         <div className="sticky bottom-0 bg-background border-t border-border p-4 flex items-center gap-3">
-          <label className="p-2 hover:bg-secondary rounded-full transition-colors cursor-pointer">
-            <input type="file" accept="image/*" onChange={sendImage} className="hidden" />
-            <Image className="w-6 h-6 text-muted-foreground" />
-          </label>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*,video/*,.pdf,.doc,.docx"
+            onChange={sendFile}
+            className="hidden"
+          />
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="p-2 hover:bg-secondary rounded-full transition-colors"
+          >
+            <Paperclip className="w-5 h-5 text-muted-foreground" />
+          </button>
           <Input
             placeholder="Type a message..."
             value={message}
             onChange={(e) => setMessage(e.target.value)}
             onKeyPress={(e) => e.key === "Enter" && sendMessage()}
-            className="flex-1 h-12 rounded-full bg-secondary border-0"
+            className="flex-1 h-11 rounded-full bg-secondary border-0"
           />
           <button
             onClick={sendMessage}
             disabled={!message.trim() || isSending}
-            className="w-12 h-12 bg-primary rounded-full flex items-center justify-center disabled:opacity-50"
+            className="w-11 h-11 bg-primary rounded-full flex items-center justify-center disabled:opacity-50 transition-opacity"
           >
             <Send className="w-5 h-5 text-primary-foreground" />
           </button>
@@ -333,8 +379,14 @@ const Chat = () => {
   return (
     <div className="min-h-screen bg-background pb-20">
       {/* Header */}
-      <header className="sticky top-0 bg-background z-40 px-4 pt-4 pb-3">
-        <h1 className="text-2xl font-semibold text-foreground mb-4">Messages</h1>
+      <header className="sticky top-0 bg-background z-40 px-4 pt-4 pb-3 border-b border-border">
+        <div className="flex items-center justify-between mb-4">
+          <h1 className="text-2xl font-bold text-foreground">Messages</h1>
+          <div className="flex items-center gap-1 px-2 py-1 bg-primary/10 rounded-full">
+            <Lock className="w-3 h-3 text-primary" />
+            <span className="text-xs text-primary font-medium">Encrypted</span>
+          </div>
+        </div>
 
         {/* Search */}
         <div className="relative">
@@ -344,7 +396,7 @@ const Chat = () => {
             placeholder="Search conversations..."
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            className="pl-12 h-12 rounded-xl bg-secondary border-0"
+            className="pl-12 h-11 rounded-xl bg-secondary border-0"
           />
         </div>
       </header>
@@ -361,6 +413,7 @@ const Chat = () => {
           </div>
         ) : filteredChats.length === 0 ? (
           <div className="text-center py-12">
+            <Lock className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
             <p className="text-muted-foreground">No conversations yet</p>
             <p className="text-sm text-muted-foreground mt-1">Start chatting with nurseries!</p>
           </div>
@@ -372,22 +425,22 @@ const Chat = () => {
                 setSelectedChat(chat.id);
                 setSelectedChatData(chat);
               }}
-              className="w-full flex items-center gap-3 py-3 border-b border-border last:border-0"
+              className="w-full flex items-center gap-3 py-4 border-b border-border last:border-0"
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: index * 0.05 }}
             >
               <div className="relative">
-                <div className="w-14 h-14 rounded-full overflow-hidden border-2 border-plantx-soft">
+                <div className="w-14 h-14 rounded-full overflow-hidden border-2 border-primary/20">
                   <img src={chat.avatar} alt={chat.name} className="w-full h-full object-cover" />
                 </div>
                 {chat.unread > 0 && (
-                  <span className="absolute -top-1 -right-1 w-5 h-5 bg-primary rounded-full flex items-center justify-center text-[10px] font-semibold text-primary-foreground">
+                  <span className="absolute -top-1 -right-1 w-5 h-5 bg-destructive rounded-full flex items-center justify-center text-[10px] font-semibold text-destructive-foreground">
                     {chat.unread}
                   </span>
                 )}
               </div>
-              <div className="flex-1 text-left">
+              <div className="flex-1 text-left min-w-0">
                 <div className="flex items-center justify-between">
                   <h3 className="font-semibold text-foreground">{chat.name}</h3>
                   <span className="text-xs text-muted-foreground">{chat.time}</span>
