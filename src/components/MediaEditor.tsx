@@ -1,10 +1,11 @@
 import { useState, useRef, useEffect } from "react";
-import { X, Type, Music, Smile, Wand2, Check, Trash2, Move } from "lucide-react";
+import { X, Type, Music, Smile, Wand2, Check, Move, Play, Pause, Search, Scissors, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Slider } from "@/components/ui/slider";
+import { useToast } from "@/hooks/use-toast";
 
 interface TextOverlay {
   id: string;
@@ -22,6 +23,8 @@ interface StickerOverlay {
   x: number;
   y: number;
   size: number;
+  isGif?: boolean;
+  gifUrl?: string;
 }
 
 interface Filter {
@@ -43,6 +46,8 @@ export interface EditedMediaData {
   textOverlays: TextOverlay[];
   stickerOverlays: StickerOverlay[];
   selectedMusic: MusicTrack | null;
+  trimStart?: number;
+  trimEnd?: number;
 }
 
 interface MusicTrack {
@@ -51,6 +56,14 @@ interface MusicTrack {
   artist: string;
   duration: string;
   url: string;
+  previewUrl: string;
+}
+
+interface GiphyGif {
+  id: string;
+  title: string;
+  url: string;
+  preview: string;
 }
 
 const filters: Filter[] = [
@@ -68,15 +81,16 @@ const filters: Filter[] = [
   { name: "Perpetua", style: { filter: "contrast(1.1) brightness(1.25) saturate(1.1)" } },
 ];
 
+// Sample music with preview URLs (royalty-free audio samples)
 const musicTracks: MusicTrack[] = [
-  { id: "1", name: "Chill Vibes", artist: "Lo-Fi Beats", duration: "2:34", url: "" },
-  { id: "2", name: "Summer Breeze", artist: "Tropical House", duration: "3:12", url: "" },
-  { id: "3", name: "Urban Flow", artist: "Hip Hop Instrumental", duration: "2:45", url: "" },
-  { id: "4", name: "Acoustic Morning", artist: "Guitar Melodies", duration: "3:01", url: "" },
-  { id: "5", name: "Electric Dreams", artist: "Synthwave", duration: "2:58", url: "" },
-  { id: "6", name: "Jazz Cafe", artist: "Smooth Jazz", duration: "3:24", url: "" },
-  { id: "7", name: "Nature Sounds", artist: "Ambient", duration: "4:00", url: "" },
-  { id: "8", name: "Pop Energy", artist: "Upbeat Pop", duration: "2:30", url: "" },
+  { id: "1", name: "Chill Vibes", artist: "Lo-Fi Beats", duration: "2:34", url: "", previewUrl: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3" },
+  { id: "2", name: "Summer Breeze", artist: "Tropical House", duration: "3:12", url: "", previewUrl: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3" },
+  { id: "3", name: "Urban Flow", artist: "Hip Hop Instrumental", duration: "2:45", url: "", previewUrl: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3" },
+  { id: "4", name: "Acoustic Morning", artist: "Guitar Melodies", duration: "3:01", url: "", previewUrl: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3" },
+  { id: "5", name: "Electric Dreams", artist: "Synthwave", duration: "2:58", url: "", previewUrl: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3" },
+  { id: "6", name: "Jazz Cafe", artist: "Smooth Jazz", duration: "3:24", url: "", previewUrl: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-6.mp3" },
+  { id: "7", name: "Nature Sounds", artist: "Ambient", duration: "4:00", url: "", previewUrl: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-7.mp3" },
+  { id: "8", name: "Pop Energy", artist: "Upbeat Pop", duration: "2:30", url: "", previewUrl: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-8.mp3" },
 ];
 
 const emojiStickers = [
@@ -97,7 +111,11 @@ const fontFamilies = [
   "Inter", "Georgia", "Impact", "Comic Sans MS", "Courier New",
 ];
 
+// Giphy public beta API key (for development/demo purposes)
+const GIPHY_API_KEY = "dc6zaTOxFJmzC";
+
 const MediaEditor = ({ open, onOpenChange, mediaUrl, mediaType, onSave }: MediaEditorProps) => {
+  const { toast } = useToast();
   const [activeTab, setActiveTab] = useState("filters");
   const [selectedFilter, setSelectedFilter] = useState<Filter>(filters[0]);
   const [textOverlays, setTextOverlays] = useState<TextOverlay[]>([]);
@@ -109,12 +127,136 @@ const MediaEditor = ({ open, onOpenChange, mediaUrl, mediaType, onSave }: MediaE
   const [textColor, setTextColor] = useState("#FFFFFF");
   const [fontSize, setFontSize] = useState([24]);
   const [fontFamily, setFontFamily] = useState("Inter");
-  const [editingTextId, setEditingTextId] = useState<string | null>(null);
   
   // Drag state
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [draggingType, setDraggingType] = useState<"text" | "sticker" | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  
+  // Audio playback state
+  const [playingTrackId, setPlayingTrackId] = useState<string | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  
+  // GIF search state
+  const [gifSearch, setGifSearch] = useState("");
+  const [gifs, setGifs] = useState<GiphyGif[]>([]);
+  const [isLoadingGifs, setIsLoadingGifs] = useState(false);
+  const [stickerTab, setStickerTab] = useState<"emoji" | "gif">("emoji");
+  
+  // Video trimming state
+  const [trimStart, setTrimStart] = useState([0]);
+  const [trimEnd, setTrimEnd] = useState([100]);
+  const [videoDuration, setVideoDuration] = useState(0);
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  // Cleanup audio on unmount
+  useEffect(() => {
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current = null;
+      }
+    };
+  }, []);
+
+  // Load trending GIFs on mount
+  useEffect(() => {
+    if (stickerTab === "gif" && gifs.length === 0) {
+      fetchTrendingGifs();
+    }
+  }, [stickerTab]);
+
+  // Get video duration
+  useEffect(() => {
+    if (mediaType === "video" && videoRef.current) {
+      const handleLoadedMetadata = () => {
+        setVideoDuration(videoRef.current?.duration || 0);
+        setTrimEnd([100]);
+      };
+      videoRef.current.addEventListener("loadedmetadata", handleLoadedMetadata);
+      return () => {
+        videoRef.current?.removeEventListener("loadedmetadata", handleLoadedMetadata);
+      };
+    }
+  }, [mediaType, mediaUrl]);
+
+  const fetchTrendingGifs = async () => {
+    setIsLoadingGifs(true);
+    try {
+      const response = await fetch(
+        `https://api.giphy.com/v1/gifs/trending?api_key=${GIPHY_API_KEY}&limit=20&rating=g`
+      );
+      const data = await response.json();
+      const formattedGifs: GiphyGif[] = data.data.map((gif: any) => ({
+        id: gif.id,
+        title: gif.title,
+        url: gif.images.fixed_height.url,
+        preview: gif.images.fixed_height_small.url,
+      }));
+      setGifs(formattedGifs);
+    } catch (error) {
+      console.error("Error fetching GIFs:", error);
+    } finally {
+      setIsLoadingGifs(false);
+    }
+  };
+
+  const searchGifs = async () => {
+    if (!gifSearch.trim()) {
+      fetchTrendingGifs();
+      return;
+    }
+    
+    setIsLoadingGifs(true);
+    try {
+      const response = await fetch(
+        `https://api.giphy.com/v1/gifs/search?api_key=${GIPHY_API_KEY}&q=${encodeURIComponent(gifSearch)}&limit=20&rating=g`
+      );
+      const data = await response.json();
+      const formattedGifs: GiphyGif[] = data.data.map((gif: any) => ({
+        id: gif.id,
+        title: gif.title,
+        url: gif.images.fixed_height.url,
+        preview: gif.images.fixed_height_small.url,
+      }));
+      setGifs(formattedGifs);
+    } catch (error) {
+      console.error("Error searching GIFs:", error);
+    } finally {
+      setIsLoadingGifs(false);
+    }
+  };
+
+  const handlePlayPreview = (track: MusicTrack) => {
+    if (playingTrackId === track.id) {
+      // Stop playing
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current = null;
+      }
+      setPlayingTrackId(null);
+    } else {
+      // Stop any currently playing audio
+      if (audioRef.current) {
+        audioRef.current.pause();
+      }
+      
+      // Start new audio
+      const audio = new Audio(track.previewUrl);
+      audio.volume = 0.5;
+      audio.play().catch(() => {
+        toast({ title: "Couldn't play preview", variant: "destructive" });
+      });
+      
+      audio.onended = () => {
+        setPlayingTrackId(null);
+        audioRef.current = null;
+      };
+      
+      audioRef.current = audio;
+      setPlayingTrackId(track.id);
+    }
+  };
 
   const handleAddText = () => {
     if (!newText.trim()) return;
@@ -140,8 +282,23 @@ const MediaEditor = ({ open, onOpenChange, mediaUrl, mediaType, onSave }: MediaE
       x: 50,
       y: 50,
       size: 48,
+      isGif: false,
     };
     setStickerOverlays([...stickerOverlays, newSticker]);
+  };
+
+  const handleAddGifSticker = (gif: GiphyGif) => {
+    const newSticker: StickerOverlay = {
+      id: Date.now().toString(),
+      emoji: "",
+      x: 50,
+      y: 50,
+      size: 80,
+      isGif: true,
+      gifUrl: gif.url,
+    };
+    setStickerOverlays([...stickerOverlays, newSticker]);
+    toast({ title: "GIF added!" });
   };
 
   const handleRemoveText = (id: string) => {
@@ -185,13 +342,28 @@ const MediaEditor = ({ open, onOpenChange, mediaUrl, mediaType, onSave }: MediaE
     setDraggingType(null);
   };
 
+  const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins}:${secs.toString().padStart(2, "0")}`;
+  };
+
   const handleSave = () => {
+    // Stop any playing audio
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current = null;
+    }
+    setPlayingTrackId(null);
+    
     onSave({
       filter: selectedFilter.name,
       filterStyle: selectedFilter.style,
       textOverlays,
       stickerOverlays,
       selectedMusic,
+      trimStart: mediaType === "video" ? (trimStart[0] / 100) * videoDuration : undefined,
+      trimEnd: mediaType === "video" ? (trimEnd[0] / 100) * videoDuration : undefined,
     });
     onOpenChange(false);
   };
@@ -228,6 +400,7 @@ const MediaEditor = ({ open, onOpenChange, mediaUrl, mediaType, onSave }: MediaE
             />
           ) : (
             <video 
+              ref={videoRef}
               src={mediaUrl} 
               className="w-full h-full object-cover"
               style={selectedFilter.style}
@@ -276,17 +449,25 @@ const MediaEditor = ({ open, onOpenChange, mediaUrl, mediaType, onSave }: MediaE
                 left: `${sticker.x}%`,
                 top: `${sticker.y}%`,
                 transform: "translate(-50%, -50%)",
-                fontSize: `${sticker.size}px`,
               }}
               onTouchStart={handleTouchStart(sticker.id, "sticker")}
             >
               <div className="relative group">
-                <span>{sticker.emoji}</span>
+                {sticker.isGif ? (
+                  <img 
+                    src={sticker.gifUrl} 
+                    alt="GIF sticker" 
+                    className="rounded-lg"
+                    style={{ width: `${sticker.size}px`, height: "auto" }}
+                  />
+                ) : (
+                  <span style={{ fontSize: `${sticker.size}px` }}>{sticker.emoji}</span>
+                )}
                 <button
                   onClick={() => handleRemoveSticker(sticker.id)}
-                  className="absolute -top-1 -right-1 w-4 h-4 bg-destructive rounded-full flex items-center justify-center opacity-70"
+                  className="absolute -top-1 -right-1 w-5 h-5 bg-destructive rounded-full flex items-center justify-center opacity-70"
                 >
-                  <X className="w-2.5 h-2.5 text-white" />
+                  <X className="w-3 h-3 text-white" />
                 </button>
               </div>
             </div>
@@ -306,23 +487,29 @@ const MediaEditor = ({ open, onOpenChange, mediaUrl, mediaType, onSave }: MediaE
         {/* Tabs */}
         <div className="flex-1 mt-4">
           <Tabs value={activeTab} onValueChange={setActiveTab} className="h-full">
-            <TabsList className="grid grid-cols-4 mx-4 mb-3">
-              <TabsTrigger value="filters" className="gap-1.5 text-xs">
+            <TabsList className="grid grid-cols-5 mx-4 mb-3">
+              <TabsTrigger value="filters" className="gap-1 text-xs px-2">
                 <Wand2 className="w-4 h-4" />
-                Filters
+                <span className="hidden sm:inline">Filters</span>
               </TabsTrigger>
-              <TabsTrigger value="text" className="gap-1.5 text-xs">
+              <TabsTrigger value="text" className="gap-1 text-xs px-2">
                 <Type className="w-4 h-4" />
-                Text
+                <span className="hidden sm:inline">Text</span>
               </TabsTrigger>
-              <TabsTrigger value="music" className="gap-1.5 text-xs">
+              <TabsTrigger value="music" className="gap-1 text-xs px-2">
                 <Music className="w-4 h-4" />
-                Music
+                <span className="hidden sm:inline">Music</span>
               </TabsTrigger>
-              <TabsTrigger value="stickers" className="gap-1.5 text-xs">
+              <TabsTrigger value="stickers" className="gap-1 text-xs px-2">
                 <Smile className="w-4 h-4" />
-                Stickers
+                <span className="hidden sm:inline">Stickers</span>
               </TabsTrigger>
+              {mediaType === "video" && (
+                <TabsTrigger value="trim" className="gap-1 text-xs px-2">
+                  <Scissors className="w-4 h-4" />
+                  <span className="hidden sm:inline">Trim</span>
+                </TabsTrigger>
+              )}
             </TabsList>
 
             <div className="px-4 overflow-y-auto max-h-[35vh]">
@@ -430,57 +617,217 @@ const MediaEditor = ({ open, onOpenChange, mediaUrl, mediaType, onSave }: MediaE
                   {selectedMusic && (
                     <div className="flex items-center justify-between p-3 bg-primary/10 rounded-xl mb-3">
                       <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-primary rounded-lg flex items-center justify-center">
-                          <Music className="w-5 h-5 text-primary-foreground" />
-                        </div>
+                        <button 
+                          onClick={() => handlePlayPreview(selectedMusic)}
+                          className="w-10 h-10 bg-primary rounded-lg flex items-center justify-center"
+                        >
+                          {playingTrackId === selectedMusic.id ? (
+                            <Pause className="w-5 h-5 text-primary-foreground" />
+                          ) : (
+                            <Play className="w-5 h-5 text-primary-foreground" />
+                          )}
+                        </button>
                         <div>
                           <p className="font-medium text-sm">{selectedMusic.name}</p>
                           <p className="text-xs text-muted-foreground">{selectedMusic.artist}</p>
                         </div>
                       </div>
-                      <button onClick={() => setSelectedMusic(null)}>
+                      <button onClick={() => {
+                        if (playingTrackId === selectedMusic.id && audioRef.current) {
+                          audioRef.current.pause();
+                          audioRef.current = null;
+                          setPlayingTrackId(null);
+                        }
+                        setSelectedMusic(null);
+                      }}>
                         <X className="w-5 h-5 text-muted-foreground" />
                       </button>
                     </div>
                   )}
                   
                   {musicTracks.map((track) => (
-                    <button
+                    <div
                       key={track.id}
-                      onClick={() => setSelectedMusic(track)}
-                      className={`w-full flex items-center gap-3 p-3 rounded-xl transition-all ${
+                      className={`flex items-center gap-3 p-3 rounded-xl transition-all ${
                         selectedMusic?.id === track.id 
                           ? "bg-primary/10 border border-primary" 
                           : "bg-secondary hover:bg-secondary/80"
                       }`}
                     >
-                      <div className="w-10 h-10 bg-muted rounded-lg flex items-center justify-center">
-                        <Music className="w-5 h-5 text-muted-foreground" />
-                      </div>
-                      <div className="flex-1 text-left">
+                      {/* Play/Pause button */}
+                      <button 
+                        onClick={() => handlePlayPreview(track)}
+                        className="w-10 h-10 bg-muted rounded-lg flex items-center justify-center flex-shrink-0"
+                      >
+                        {playingTrackId === track.id ? (
+                          <Pause className="w-5 h-5 text-foreground" />
+                        ) : (
+                          <Play className="w-5 h-5 text-foreground" />
+                        )}
+                      </button>
+                      
+                      {/* Track info - clickable to select */}
+                      <button 
+                        onClick={() => setSelectedMusic(track)}
+                        className="flex-1 text-left"
+                      >
                         <p className="font-medium text-sm">{track.name}</p>
                         <p className="text-xs text-muted-foreground">{track.artist}</p>
-                      </div>
+                      </button>
+                      
                       <span className="text-xs text-muted-foreground">{track.duration}</span>
-                    </button>
+                    </div>
                   ))}
                 </div>
               </TabsContent>
 
               {/* Stickers Tab */}
               <TabsContent value="stickers" className="mt-0">
-                <div className="grid grid-cols-8 gap-2">
-                  {emojiStickers.map((emoji, index) => (
-                    <button
-                      key={index}
-                      onClick={() => handleAddSticker(emoji)}
-                      className="w-10 h-10 flex items-center justify-center text-2xl hover:bg-secondary rounded-lg transition-colors active:scale-90"
-                    >
-                      {emoji}
-                    </button>
-                  ))}
+                {/* Sticker type toggle */}
+                <div className="flex gap-2 mb-4">
+                  <button
+                    onClick={() => setStickerTab("emoji")}
+                    className={`px-4 py-2 rounded-full text-sm font-medium transition-all ${
+                      stickerTab === "emoji" 
+                        ? "bg-primary text-primary-foreground" 
+                        : "bg-secondary text-muted-foreground"
+                    }`}
+                  >
+                    😊 Emoji
+                  </button>
+                  <button
+                    onClick={() => setStickerTab("gif")}
+                    className={`px-4 py-2 rounded-full text-sm font-medium transition-all ${
+                      stickerTab === "gif" 
+                        ? "bg-primary text-primary-foreground" 
+                        : "bg-secondary text-muted-foreground"
+                    }`}
+                  >
+                    🎬 GIFs
+                  </button>
                 </div>
+
+                {stickerTab === "emoji" ? (
+                  <div className="grid grid-cols-8 gap-2">
+                    {emojiStickers.map((emoji, index) => (
+                      <button
+                        key={index}
+                        onClick={() => handleAddSticker(emoji)}
+                        className="w-10 h-10 flex items-center justify-center text-2xl hover:bg-secondary rounded-lg transition-colors active:scale-90"
+                      >
+                        {emoji}
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {/* GIF Search */}
+                    <div className="flex gap-2">
+                      <Input
+                        placeholder="Search GIFs..."
+                        value={gifSearch}
+                        onChange={(e) => setGifSearch(e.target.value)}
+                        onKeyDown={(e) => e.key === "Enter" && searchGifs()}
+                        className="h-10 rounded-xl flex-1"
+                      />
+                      <Button onClick={searchGifs} className="h-10 px-4 rounded-xl">
+                        <Search className="w-4 h-4" />
+                      </Button>
+                    </div>
+                    
+                    {/* GIF Grid */}
+                    {isLoadingGifs ? (
+                      <div className="flex items-center justify-center py-8">
+                        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-3 gap-2 max-h-48 overflow-y-auto">
+                        {gifs.map((gif) => (
+                          <button
+                            key={gif.id}
+                            onClick={() => handleAddGifSticker(gif)}
+                            className="aspect-square rounded-lg overflow-hidden hover:ring-2 ring-primary transition-all"
+                          >
+                            <img 
+                              src={gif.preview} 
+                              alt={gif.title}
+                              className="w-full h-full object-cover"
+                            />
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    
+                    <p className="text-xs text-muted-foreground text-center">
+                      Powered by GIPHY
+                    </p>
+                  </div>
+                )}
               </TabsContent>
+
+              {/* Trim Tab (Video only) */}
+              {mediaType === "video" && (
+                <TabsContent value="trim" className="mt-0 space-y-4">
+                  <div className="bg-secondary rounded-xl p-4">
+                    <div className="flex items-center gap-2 mb-4">
+                      <Scissors className="w-5 h-5 text-primary" />
+                      <h3 className="font-medium">Trim Video</h3>
+                    </div>
+                    
+                    {/* Start time slider */}
+                    <div className="mb-4">
+                      <div className="flex justify-between text-sm mb-2">
+                        <span className="text-muted-foreground">Start</span>
+                        <span className="font-medium">{formatTime((trimStart[0] / 100) * videoDuration)}</span>
+                      </div>
+                      <Slider
+                        value={trimStart}
+                        onValueChange={(val) => {
+                          if (val[0] < trimEnd[0] - 5) {
+                            setTrimStart(val);
+                          }
+                        }}
+                        min={0}
+                        max={100}
+                        step={1}
+                        className="w-full"
+                      />
+                    </div>
+                    
+                    {/* End time slider */}
+                    <div className="mb-4">
+                      <div className="flex justify-between text-sm mb-2">
+                        <span className="text-muted-foreground">End</span>
+                        <span className="font-medium">{formatTime((trimEnd[0] / 100) * videoDuration)}</span>
+                      </div>
+                      <Slider
+                        value={trimEnd}
+                        onValueChange={(val) => {
+                          if (val[0] > trimStart[0] + 5) {
+                            setTrimEnd(val);
+                          }
+                        }}
+                        min={0}
+                        max={100}
+                        step={1}
+                        className="w-full"
+                      />
+                    </div>
+                    
+                    {/* Duration info */}
+                    <div className="flex justify-between items-center pt-2 border-t border-border">
+                      <span className="text-sm text-muted-foreground">Selected duration</span>
+                      <span className="font-medium text-primary">
+                        {formatTime(((trimEnd[0] - trimStart[0]) / 100) * videoDuration)}
+                      </span>
+                    </div>
+                  </div>
+                  
+                  <p className="text-xs text-muted-foreground text-center">
+                    Drag the sliders to select the portion of video you want to keep
+                  </p>
+                </TabsContent>
+              )}
             </div>
           </Tabs>
         </div>
