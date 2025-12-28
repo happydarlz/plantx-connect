@@ -114,7 +114,7 @@ const Home = () => {
           hasStory: true,
         });
       }
-    });
+    }
 
     // Add own story first
     const ownStory: Story = {
