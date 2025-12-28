@@ -21,7 +21,7 @@ const Splash = () => {
       } else {
         navigate("/auth");
       }
-    }, 2000);
+    }, 5000);
 
     return () => clearTimeout(timer);
   }, [user, profile, isLoading, navigate]);
