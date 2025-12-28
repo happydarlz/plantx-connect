@@ -1,11 +1,13 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, ImagePlus, Video, Leaf, Camera, Upload } from "lucide-react";
+import { X, ImagePlus, Video, Leaf, Camera, Upload, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/AuthContext";
+import { supabase } from "@/integrations/supabase/client";
 
 type CreateType = "plant" | "post" | "reel" | null;
 
@@ -36,8 +38,13 @@ const createOptions = [
 const Create = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { user } = useAuth();
   const [selected, setSelected] = useState<CreateType>(null);
   const [isLoading, setIsLoading] = useState(false);
+
+  // Image upload
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
 
   // Plant form
   const [plantName, setPlantName] = useState("");
@@ -51,21 +58,130 @@ const Create = () => {
   const [caption, setCaption] = useState("");
   const [tags, setTags] = useState("");
 
-  const handleSubmit = () => {
+  useEffect(() => {
+    if (!user) {
+      navigate("/auth");
+    }
+  }, [user, navigate]);
+
+  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setImageFile(file);
+      const reader = new FileReader();
+      reader.onload = () => setImagePreview(reader.result as string);
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const uploadImage = async (folder: string): Promise<string | null> => {
+    if (!imageFile || !user) return null;
+
+    const fileExt = imageFile.name.split(".").pop();
+    const fileName = `${Date.now()}.${fileExt}`;
+    const filePath = `${user.id}/${folder}/${fileName}`;
+
+    const { error } = await supabase.storage
+      .from("uploads")
+      .upload(filePath, imageFile);
+
+    if (error) {
+      console.error("Upload error:", error);
+      return null;
+    }
+
+    const { data: { publicUrl } } = supabase.storage
+      .from("uploads")
+      .getPublicUrl(filePath);
+
+    return publicUrl;
+  };
+
+  const handleSubmitPlant = async () => {
+    if (!plantName) {
+      toast({ title: "Plant name is required", variant: "destructive" });
+      return;
+    }
+
+    if (!user) return;
     setIsLoading(true);
-    setTimeout(() => {
-      setIsLoading(false);
-      toast({
-        title: "Published! 🌱",
-        description: `Your ${selected} has been shared successfully`,
+
+    try {
+      const imageUrl = await uploadImage("plants");
+
+      const { error } = await supabase.from("plants").insert({
+        user_id: user.id,
+        name: plantName,
+        description: plantDescription || null,
+        height: plantHeight || null,
+        size: plantSize || null,
+        price: plantPrice ? parseFloat(plantPrice) : null,
+        tags: plantTags ? plantTags.split(",").map((t) => t.trim()) : [],
+        image_url: imageUrl,
       });
+
+      if (error) throw error;
+
+      toast({ title: "Plant added! 🌱", description: "Your plant is now listed" });
+      navigate("/profile");
+    } catch (error) {
+      console.error("Error:", error);
+      toast({ title: "Error", description: "Failed to add plant", variant: "destructive" });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleSubmitPost = async () => {
+    if (!imageFile) {
+      toast({ title: "Image is required", variant: "destructive" });
+      return;
+    }
+
+    if (!user) return;
+    setIsLoading(true);
+
+    try {
+      const imageUrl = await uploadImage("posts");
+
+      if (!imageUrl) {
+        throw new Error("Failed to upload image");
+      }
+
+      const { error } = await supabase.from("posts").insert({
+        user_id: user.id,
+        image_url: imageUrl,
+        caption: caption || null,
+        tags: tags ? tags.split(",").map((t) => t.trim()) : [],
+      });
+
+      if (error) throw error;
+
+      toast({ title: "Posted! 🌿", description: "Your post is live" });
       navigate("/home");
-    }, 1500);
+    } catch (error) {
+      console.error("Error:", error);
+      toast({ title: "Error", description: "Failed to create post", variant: "destructive" });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleSubmit = () => {
+    if (selected === "plant") {
+      handleSubmitPlant();
+    } else if (selected === "post") {
+      handleSubmitPost();
+    } else {
+      toast({ title: "Coming soon!", description: "Reels feature is coming soon" });
+    }
   };
 
   const handleBack = () => {
     if (selected) {
       setSelected(null);
+      setImageFile(null);
+      setImagePreview(null);
     } else {
       navigate(-1);
     }
@@ -131,10 +247,24 @@ const Create = () => {
             className="px-4 py-6 space-y-4"
           >
             {/* Image upload */}
-            <div className="aspect-square bg-secondary rounded-2xl border-2 border-dashed border-border flex flex-col items-center justify-center gap-3">
-              <Camera className="w-12 h-12 text-muted-foreground" />
-              <p className="text-muted-foreground text-sm">Tap to add plant photo</p>
-            </div>
+            <label className="block">
+              <input
+                type="file"
+                accept="image/*"
+                onChange={handleImageSelect}
+                className="hidden"
+              />
+              <div className="aspect-square bg-secondary rounded-2xl border-2 border-dashed border-border flex flex-col items-center justify-center gap-3 cursor-pointer overflow-hidden">
+                {imagePreview ? (
+                  <img src={imagePreview} alt="Preview" className="w-full h-full object-cover" />
+                ) : (
+                  <>
+                    <Camera className="w-12 h-12 text-muted-foreground" />
+                    <p className="text-muted-foreground text-sm">Tap to add plant photo</p>
+                  </>
+                )}
+              </div>
+            </label>
 
             <Input
               placeholder="Plant Name *"
@@ -182,7 +312,7 @@ const Create = () => {
               disabled={!plantName || isLoading}
               className="w-full h-12 rounded-xl bg-primary hover:bg-primary/90 mt-4"
             >
-              {isLoading ? "Publishing..." : "Publish Plant"}
+              {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : "Publish Plant"}
             </Button>
           </motion.div>
         ) : (
@@ -194,12 +324,26 @@ const Create = () => {
             className="px-4 py-6 space-y-4"
           >
             {/* Media upload */}
-            <div className="aspect-video bg-secondary rounded-2xl border-2 border-dashed border-border flex flex-col items-center justify-center gap-3">
-              <Upload className="w-12 h-12 text-muted-foreground" />
-              <p className="text-muted-foreground text-sm">
-                Tap to add {selected === "post" ? "image" : "video"}
-              </p>
-            </div>
+            <label className="block">
+              <input
+                type="file"
+                accept={selected === "post" ? "image/*" : "video/*"}
+                onChange={handleImageSelect}
+                className="hidden"
+              />
+              <div className="aspect-video bg-secondary rounded-2xl border-2 border-dashed border-border flex flex-col items-center justify-center gap-3 cursor-pointer overflow-hidden">
+                {imagePreview ? (
+                  <img src={imagePreview} alt="Preview" className="w-full h-full object-cover" />
+                ) : (
+                  <>
+                    <Upload className="w-12 h-12 text-muted-foreground" />
+                    <p className="text-muted-foreground text-sm">
+                      Tap to add {selected === "post" ? "image" : "video"}
+                    </p>
+                  </>
+                )}
+              </div>
+            </label>
 
             <Textarea
               placeholder="Write a caption..."
@@ -217,10 +361,10 @@ const Create = () => {
 
             <Button
               onClick={handleSubmit}
-              disabled={isLoading}
+              disabled={isLoading || (selected === "post" && !imageFile)}
               className="w-full h-12 rounded-xl bg-primary hover:bg-primary/90 mt-4"
             >
-              {isLoading ? "Publishing..." : `Publish ${selected === "post" ? "Post" : "Reel"}`}
+              {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : `Publish ${selected === "post" ? "Post" : "Reel"}`}
             </Button>
           </motion.div>
         )}

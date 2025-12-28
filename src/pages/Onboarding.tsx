@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Camera, MapPin, ArrowRight, ArrowLeft, Check } from "lucide-react";
@@ -7,6 +7,8 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import PlantXLogo from "@/components/PlantXLogo";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/AuthContext";
+import { supabase } from "@/integrations/supabase/client";
 
 const steps = [
   { id: 1, title: "Profile Photo", subtitle: "Let others see your nursery" },
@@ -17,22 +19,39 @@ const steps = [
 const Onboarding = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { user, profile, refreshProfile } = useAuth();
   const [currentStep, setCurrentStep] = useState(1);
   const [isLoading, setIsLoading] = useState(false);
 
   // Form states
-  const [profileImage, setProfileImage] = useState<string | null>(null);
+  const [profileImage, setProfileImage] = useState<File | null>(null);
+  const [profileImagePreview, setProfileImagePreview] = useState<string | null>(null);
   const [nurseryName, setNurseryName] = useState("");
   const [username, setUsername] = useState("");
   const [bio, setBio] = useState("");
   const [address, setAddress] = useState("");
 
+  // Redirect if already has profile
+  useEffect(() => {
+    if (profile) {
+      navigate("/home");
+    }
+  }, [profile, navigate]);
+
+  // Redirect if not logged in
+  useEffect(() => {
+    if (!user) {
+      navigate("/auth");
+    }
+  }, [user, navigate]);
+
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      setProfileImage(file);
       const reader = new FileReader();
       reader.onload = () => {
-        setProfileImage(reader.result as string);
+        setProfileImagePreview(reader.result as string);
       };
       reader.readAsDataURL(file);
     }
@@ -52,7 +71,16 @@ const Onboarding = () => {
     }
   };
 
-  const handleComplete = () => {
+  const checkUsernameAvailable = async (username: string) => {
+    const { data } = await supabase
+      .from("profiles")
+      .select("id")
+      .eq("username", username)
+      .maybeSingle();
+    return !data;
+  };
+
+  const handleComplete = async () => {
     if (!nurseryName || !username) {
       toast({
         title: "Missing information",
@@ -63,15 +91,88 @@ const Onboarding = () => {
       return;
     }
 
-    setIsLoading(true);
-    setTimeout(() => {
-      setIsLoading(false);
+    if (!user) {
       toast({
-        title: "Welcome to PlantX! 🌱",
-        description: "Your nursery profile is ready",
+        title: "Not authenticated",
+        description: "Please log in again",
+        variant: "destructive",
       });
-      navigate("/home");
-    }, 1500);
+      navigate("/auth");
+      return;
+    }
+
+    setIsLoading(true);
+
+    try {
+      // Check if username is available
+      const isAvailable = await checkUsernameAvailable(username);
+      if (!isAvailable) {
+        toast({
+          title: "Username taken",
+          description: "Please choose a different username",
+          variant: "destructive",
+        });
+        setCurrentStep(2);
+        setIsLoading(false);
+        return;
+      }
+
+      let profileImageUrl = null;
+
+      // Upload profile image if exists
+      if (profileImage) {
+        const fileExt = profileImage.name.split(".").pop();
+        const filePath = `${user.id}/profile.${fileExt}`;
+
+        const { error: uploadError } = await supabase.storage
+          .from("uploads")
+          .upload(filePath, profileImage, { upsert: true });
+
+        if (uploadError) {
+          console.error("Upload error:", uploadError);
+        } else {
+          const { data: { publicUrl } } = supabase.storage
+            .from("uploads")
+            .getPublicUrl(filePath);
+          profileImageUrl = publicUrl;
+        }
+      }
+
+      // Create profile
+      const { error } = await supabase.from("profiles").insert({
+        user_id: user.id,
+        nursery_name: nurseryName,
+        username: username.toLowerCase().replace(/\s/g, ""),
+        bio,
+        address,
+        profile_image: profileImageUrl,
+      });
+
+      if (error) {
+        console.error("Profile creation error:", error);
+        toast({
+          title: "Error",
+          description: "Failed to create profile. Please try again.",
+          variant: "destructive",
+        });
+      } else {
+        await refreshProfile();
+        toast({
+          title: "Welcome to PlantX! 🌱",
+          description: "Your nursery profile is ready",
+        });
+        navigate("/home");
+      }
+    } catch (err) {
+      console.error("Error:", err);
+      toast({
+        title: "Error",
+        description: "Something went wrong. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const canProceed = () => {
@@ -141,9 +242,9 @@ const Onboarding = () => {
                 />
                 <div className="relative">
                   <div className="w-40 h-40 rounded-full bg-secondary border-2 border-dashed border-border flex items-center justify-center overflow-hidden">
-                    {profileImage ? (
+                    {profileImagePreview ? (
                       <img
-                        src={profileImage}
+                        src={profileImagePreview}
                         alt="Profile"
                         className="w-full h-full object-cover"
                       />
@@ -236,14 +337,6 @@ const Onboarding = () => {
                 </div>
               </div>
 
-              <Button
-                variant="outline"
-                className="w-full h-12 rounded-xl border-primary text-primary hover:bg-plantx-light"
-              >
-                <MapPin className="w-5 h-5 mr-2" />
-                Select from Map
-              </Button>
-
               <p className="text-xs text-muted-foreground text-center">
                 You can update this later from your profile settings
               </p>
@@ -283,6 +376,7 @@ const Onboarding = () => {
             variant="ghost"
             onClick={handleBack}
             className="w-full h-12 rounded-xl text-muted-foreground"
+            disabled={isLoading}
           >
             <ArrowLeft className="mr-2 w-5 h-5" />
             Back

@@ -1,79 +1,110 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Search as SearchIcon, X } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Input } from "@/components/ui/input";
 import PlantCard from "@/components/PlantCard";
 import BottomNav from "@/components/BottomNav";
+import { supabase } from "@/integrations/supabase/client";
 
-// Mock data for plants
-const plants = [
-  {
-    id: "1",
-    name: "Monstera Deliciosa",
-    image: "https://images.unsplash.com/photo-1614594975525-e45190c55d0b?w=400&h=400&fit=crop",
-    height: "2-3 ft",
-    size: "Large",
-    price: 1200,
-    nurseryName: "Green Paradise",
-  },
-  {
-    id: "2",
-    name: "Peace Lily",
-    image: "https://images.unsplash.com/photo-1593691509543-c55fb32d8de5?w=400&h=400&fit=crop",
-    height: "1-2 ft",
-    size: "Medium",
-    price: 450,
-    nurseryName: "Urban Jungle",
-  },
-  {
-    id: "3",
-    name: "Snake Plant",
-    image: "https://images.unsplash.com/photo-1572688484438-313a6e50c333?w=400&h=400&fit=crop",
-    height: "2-4 ft",
-    size: "Medium",
-    price: 350,
-    nurseryName: "Bloom & Grow",
-  },
-  {
-    id: "4",
-    name: "Fiddle Leaf Fig",
-    image: "https://images.unsplash.com/photo-1459411552884-841db9b3cc2a?w=400&h=400&fit=crop",
-    height: "4-6 ft",
-    size: "Large",
-    price: 2500,
-    nurseryName: "Plant Paradise",
-  },
-  {
-    id: "5",
-    name: "Pothos",
-    image: "https://images.unsplash.com/photo-1616095697286-e7c26b1b3b49?w=400&h=400&fit=crop",
-    height: "Trailing",
-    size: "Small",
-    price: 199,
-    nurseryName: "Green Haven",
-  },
-  {
-    id: "6",
-    name: "Rubber Plant",
-    image: "https://images.unsplash.com/photo-1485955900006-10f4d324d411?w=400&h=400&fit=crop",
-    height: "3-5 ft",
-    size: "Large",
-    price: 800,
-    nurseryName: "Nature's Best",
-  },
-];
+interface Plant {
+  id: string;
+  name: string;
+  image_url: string | null;
+  height: string | null;
+  size: string | null;
+  price: number | null;
+  profiles: {
+    nursery_name: string;
+  } | null;
+}
 
 const popularTags = ["Indoor", "Outdoor", "Succulents", "Flowering", "Low Light", "Pet Safe"];
 
 const Search = () => {
   const [query, setQuery] = useState("");
   const [activeTab, setActiveTab] = useState<"plants" | "nurseries">("plants");
+  const [plants, setPlants] = useState<Plant[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    fetchPlants();
+  }, []);
+
+  const fetchPlants = async () => {
+    try {
+      const { data, error } = await supabase
+        .from("plants")
+        .select("id, name, image_url, height, size, price, user_id")
+        .order("created_at", { ascending: false })
+        .limit(50);
+
+      if (error) throw error;
+      
+      // Fetch profile data for each plant
+      const plantsWithProfiles = await Promise.all(
+        (data || []).map(async (plant) => {
+          const { data: profileData } = await supabase
+            .from("profiles")
+            .select("nursery_name")
+            .eq("user_id", plant.user_id)
+            .maybeSingle();
+          return { ...plant, profiles: profileData };
+        })
+      );
+      
+      setPlants(plantsWithProfiles);
+    } catch (error) {
+      console.error("Error fetching plants:", error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const filteredPlants = plants.filter(
     (plant) =>
       plant.name.toLowerCase().includes(query.toLowerCase()) ||
-      plant.nurseryName.toLowerCase().includes(query.toLowerCase())
+      plant.profiles?.nursery_name.toLowerCase().includes(query.toLowerCase())
   );
+
+  // Mock plants if none exist
+  const displayPlants = filteredPlants.length > 0 ? filteredPlants : query ? [] : [
+    {
+      id: "1",
+      name: "Monstera Deliciosa",
+      image_url: "https://images.unsplash.com/photo-1614594975525-e45190c55d0b?w=400&h=400&fit=crop",
+      height: "2-3 ft",
+      size: "Large",
+      price: 1200,
+      profiles: { nursery_name: "Green Paradise" },
+    },
+    {
+      id: "2",
+      name: "Peace Lily",
+      image_url: "https://images.unsplash.com/photo-1593691509543-c55fb32d8de5?w=400&h=400&fit=crop",
+      height: "1-2 ft",
+      size: "Medium",
+      price: 450,
+      profiles: { nursery_name: "Urban Jungle" },
+    },
+    {
+      id: "3",
+      name: "Snake Plant",
+      image_url: "https://images.unsplash.com/photo-1572688484438-313a6e50c333?w=400&h=400&fit=crop",
+      height: "2-4 ft",
+      size: "Medium",
+      price: 350,
+      profiles: { nursery_name: "Bloom & Grow" },
+    },
+    {
+      id: "4",
+      name: "Fiddle Leaf Fig",
+      image_url: "https://images.unsplash.com/photo-1459411552884-841db9b3cc2a?w=400&h=400&fit=crop",
+      height: "4-6 ft",
+      size: "Large",
+      price: 2500,
+      profiles: { nursery_name: "Plant Paradise" },
+    },
+  ];
 
   return (
     <div className="min-h-screen bg-background pb-20">
@@ -146,18 +177,40 @@ const Search = () => {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="grid grid-cols-2 gap-3"
             >
-              {filteredPlants.map((plant, index) => (
-                <motion.div
-                  key={plant.id}
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: index * 0.05 }}
-                >
-                  <PlantCard {...plant} />
-                </motion.div>
-              ))}
+              {isLoading ? (
+                <div className="flex justify-center py-12">
+                  <motion.div
+                    className="w-8 h-8 border-4 border-primary/30 border-t-primary rounded-full"
+                    animate={{ rotate: 360 }}
+                    transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                  />
+                </div>
+              ) : displayPlants.length > 0 ? (
+                <div className="grid grid-cols-2 gap-3">
+                  {displayPlants.map((plant, index) => (
+                    <motion.div
+                      key={plant.id}
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: index * 0.05 }}
+                    >
+                      <PlantCard
+                        name={plant.name}
+                        image={plant.image_url || "https://images.unsplash.com/photo-1466781783364-36c955e42a7f?w=400&h=400&fit=crop"}
+                        height={plant.height || "N/A"}
+                        size={plant.size || "N/A"}
+                        price={plant.price || undefined}
+                        nurseryName={plant.profiles?.nursery_name || "Unknown"}
+                      />
+                    </motion.div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-12">
+                  <p className="text-muted-foreground">No plants found</p>
+                </div>
+              )}
             </motion.div>
           )}
 
