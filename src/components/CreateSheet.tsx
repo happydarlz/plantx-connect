@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { ImagePlus, Video, Leaf, X, Upload, Plus, Loader2 } from "lucide-react";
+import { ImagePlus, Video, Leaf, X, Upload, Plus, Loader2, Wand2 } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,6 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
+import MediaEditor, { EditedMediaData } from "./MediaEditor";
 
 type CreateType = "plant" | "post" | "reel" | null;
 
@@ -60,6 +61,11 @@ const CreateSheet = ({ open, onOpenChange }: CreateSheetProps) => {
   const [caption, setCaption] = useState("");
   const [tags, setTags] = useState("");
 
+  // Media editor states
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [editingIndex, setEditingIndex] = useState(0);
+  const [editedMediaData, setEditedMediaData] = useState<Record<number, EditedMediaData>>({});
+
   const resetForm = () => {
     setSelected(null);
     setImageFiles([]);
@@ -71,6 +77,7 @@ const CreateSheet = ({ open, onOpenChange }: CreateSheetProps) => {
     setPlantTags("");
     setCaption("");
     setTags("");
+    setEditedMediaData({});
   };
 
   const handleClose = () => {
@@ -101,6 +108,18 @@ const CreateSheet = ({ open, onOpenChange }: CreateSheetProps) => {
   const removeImage = (index: number) => {
     setImageFiles(imageFiles.filter((_, i) => i !== index));
     setImagePreviews(imagePreviews.filter((_, i) => i !== index));
+    const newEditedData = { ...editedMediaData };
+    delete newEditedData[index];
+    setEditedMediaData(newEditedData);
+  };
+
+  const openEditor = (index: number) => {
+    setEditingIndex(index);
+    setEditorOpen(true);
+  };
+
+  const handleEditorSave = (data: EditedMediaData) => {
+    setEditedMediaData({ ...editedMediaData, [editingIndex]: data });
   };
 
   const uploadImages = async (folder: string): Promise<string[]> => {
@@ -159,11 +178,18 @@ const CreateSheet = ({ open, onOpenChange }: CreateSheetProps) => {
 
       if (!imageUrls.length) throw new Error("Failed to upload images");
 
+      // Include filter info in caption if applied
+      const editData = editedMediaData[0];
+      let finalCaption = caption || "";
+      if (editData?.filter && editData.filter !== "Normal") {
+        finalCaption = finalCaption ? `${finalCaption} • Filter: ${editData.filter}` : `Filter: ${editData.filter}`;
+      }
+
       const { error } = await supabase.from("posts").insert({
         user_id: user.id,
         image_url: imageUrls[0],
         image_urls: imageUrls,
-        caption: caption || null,
+        caption: finalCaption || null,
         tags: tags ? tags.split(",").map((t) => t.trim()) : [],
       });
 
@@ -186,10 +212,22 @@ const CreateSheet = ({ open, onOpenChange }: CreateSheetProps) => {
 
       if (!videoUrls.length) throw new Error("Failed to upload video");
 
+      // Include filter and music info in caption
+      const editData = editedMediaData[0];
+      let finalCaption = caption || "";
+      if (editData?.filter && editData.filter !== "Normal") {
+        finalCaption = finalCaption ? `${finalCaption} • Filter: ${editData.filter}` : `Filter: ${editData.filter}`;
+      }
+      if (editData?.selectedMusic) {
+        finalCaption = finalCaption 
+          ? `${finalCaption} 🎵 ${editData.selectedMusic.name}` 
+          : `🎵 ${editData.selectedMusic.name}`;
+      }
+
       const { error } = await supabase.from("reels").insert({
         user_id: user.id,
         video_url: videoUrls[0],
-        caption: caption || null,
+        caption: finalCaption || null,
         tags: tags ? tags.split(",").map((t) => t.trim()) : [],
       });
 
@@ -210,111 +248,82 @@ const CreateSheet = ({ open, onOpenChange }: CreateSheetProps) => {
     else if (selected === "reel") handleSubmitReel();
   };
 
-  return (
-    <Sheet open={open} onOpenChange={handleClose}>
-      <SheetContent side="bottom" className="h-[85vh] rounded-t-3xl px-4">
-        <SheetHeader className="pb-4">
-          <div className="flex items-center justify-between">
-            {selected && (
-              <button onClick={() => setSelected(null)} className="p-1">
-                <X className="w-5 h-5 text-muted-foreground" />
-              </button>
-            )}
-            <SheetTitle className="flex-1 text-center">
-              {selected ? (selected === "plant" ? "Add Plant" : selected === "post" ? "Create Post" : "Create Reel") : "Create"}
-            </SheetTitle>
-            {selected && <div className="w-6" />}
-          </div>
-        </SheetHeader>
+  const hasEdits = (index: number) => {
+    const data = editedMediaData[index];
+    if (!data) return false;
+    return (
+      data.filter !== "Normal" ||
+      data.textOverlays.length > 0 ||
+      data.stickerOverlays.length > 0 ||
+      data.selectedMusic !== null
+    );
+  };
 
-        <div className="overflow-y-auto max-h-[calc(85vh-80px)] pb-8">
-          <AnimatePresence mode="wait">
-            {!selected ? (
-              <motion.div
-                key="options"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                className="space-y-3"
-              >
-                {createOptions.map((option, index) => (
-                  <motion.button
-                    key={option.id}
-                    onClick={() => setSelected(option.id)}
-                    className="w-full p-4 rounded-2xl bg-card border border-border flex items-center gap-4 text-left hover:border-primary/30 transition-all"
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: index * 0.05 }}
-                  >
-                    <div className={`w-12 h-12 ${option.color} rounded-xl flex items-center justify-center`}>
-                      <option.icon className="w-6 h-6 text-primary-foreground" />
-                    </div>
-                    <div>
-                      <h3 className="font-semibold text-foreground">{option.title}</h3>
-                      <p className="text-sm text-muted-foreground">{option.description}</p>
-                    </div>
-                  </motion.button>
-                ))}
-              </motion.div>
-            ) : selected === "plant" ? (
-              <motion.div
-                key="plant-form"
-                initial={{ opacity: 0, x: 20 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: -20 }}
-                className="space-y-4"
-              >
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-foreground">Photos (up to 10)</label>
-                  <div className="flex gap-2 flex-wrap">
-                    {imagePreviews.map((preview, index) => (
-                      <div key={index} className="relative w-16 h-16 rounded-xl overflow-hidden">
-                        <img src={preview} alt="" className="w-full h-full object-cover" />
-                        <button
-                          onClick={() => removeImage(index)}
-                          className="absolute top-0.5 right-0.5 w-4 h-4 bg-destructive rounded-full flex items-center justify-center"
-                        >
-                          <X className="w-2.5 h-2.5 text-white" />
-                        </button>
+  return (
+    <>
+      <Sheet open={open} onOpenChange={handleClose}>
+        <SheetContent side="bottom" className="h-[85vh] rounded-t-3xl px-4">
+          <SheetHeader className="pb-4">
+            <div className="flex items-center justify-between">
+              {selected && (
+                <button onClick={() => setSelected(null)} className="p-1">
+                  <X className="w-5 h-5 text-muted-foreground" />
+                </button>
+              )}
+              <SheetTitle className="flex-1 text-center">
+                {selected ? (selected === "plant" ? "Add Plant" : selected === "post" ? "Create Post" : "Create Reel") : "Create"}
+              </SheetTitle>
+              {selected && <div className="w-6" />}
+            </div>
+          </SheetHeader>
+
+          <div className="overflow-y-auto max-h-[calc(85vh-80px)] pb-8">
+            <AnimatePresence mode="wait">
+              {!selected ? (
+                <motion.div
+                  key="options"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="space-y-3"
+                >
+                  {createOptions.map((option, index) => (
+                    <motion.button
+                      key={option.id}
+                      onClick={() => setSelected(option.id)}
+                      className="w-full p-4 rounded-2xl bg-card border border-border flex items-center gap-4 text-left hover:border-primary/30 transition-all"
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: index * 0.05 }}
+                    >
+                      <div className={`w-12 h-12 ${option.color} rounded-xl flex items-center justify-center`}>
+                        <option.icon className="w-6 h-6 text-primary-foreground" />
                       </div>
-                    ))}
-                    {imageFiles.length < 10 && (
-                      <label className="w-16 h-16 rounded-xl border-2 border-dashed border-border flex items-center justify-center cursor-pointer">
-                        <input type="file" accept="image/*" multiple onChange={handleImageSelect} className="hidden" />
-                        <Plus className="w-5 h-5 text-muted-foreground" />
-                      </label>
-                    )}
-                  </div>
-                </div>
-                <Input placeholder="Plant Name *" value={plantName} onChange={(e) => setPlantName(e.target.value)} className="h-11 rounded-xl" />
-                <Textarea placeholder="Description" value={plantDescription} onChange={(e) => setPlantDescription(e.target.value)} className="rounded-xl" rows={2} />
-                <div className="grid grid-cols-2 gap-3">
-                  <Input placeholder="Height" value={plantHeight} onChange={(e) => setPlantHeight(e.target.value)} className="h-11 rounded-xl" />
-                  <Input placeholder="Size (S/M/L)" value={plantSize} onChange={(e) => setPlantSize(e.target.value)} className="h-11 rounded-xl" />
-                </div>
-                <Input placeholder="Tags (comma separated)" value={plantTags} onChange={(e) => setPlantTags(e.target.value)} className="h-11 rounded-xl" />
-                <Button onClick={handleSubmit} disabled={!plantName || isLoading} className="w-full h-11 rounded-xl">
-                  {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : "Publish Plant"}
-                </Button>
-              </motion.div>
-            ) : (
-              <motion.div
-                key="media-form"
-                initial={{ opacity: 0, x: 20 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: -20 }}
-                className="space-y-4"
-              >
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-foreground">
-                    {selected === "reel" ? "Video" : "Photos (up to 10)"}
-                  </label>
-                  {selected === "post" ? (
+                      <div>
+                        <h3 className="font-semibold text-foreground">{option.title}</h3>
+                        <p className="text-sm text-muted-foreground">{option.description}</p>
+                      </div>
+                    </motion.button>
+                  ))}
+                </motion.div>
+              ) : selected === "plant" ? (
+                <motion.div
+                  key="plant-form"
+                  initial={{ opacity: 0, x: 20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -20 }}
+                  className="space-y-4"
+                >
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-foreground">Photos (up to 10)</label>
                     <div className="flex gap-2 flex-wrap">
                       {imagePreviews.map((preview, index) => (
                         <div key={index} className="relative w-16 h-16 rounded-xl overflow-hidden">
                           <img src={preview} alt="" className="w-full h-full object-cover" />
-                          <button onClick={() => removeImage(index)} className="absolute top-0.5 right-0.5 w-4 h-4 bg-destructive rounded-full flex items-center justify-center">
+                          <button
+                            onClick={() => removeImage(index)}
+                            className="absolute top-0.5 right-0.5 w-4 h-4 bg-destructive rounded-full flex items-center justify-center"
+                          >
                             <X className="w-2.5 h-2.5 text-white" />
                           </button>
                         </div>
@@ -326,33 +335,147 @@ const CreateSheet = ({ open, onOpenChange }: CreateSheetProps) => {
                         </label>
                       )}
                     </div>
-                  ) : (
-                    <label className="block">
-                      <input type="file" accept="video/*" onChange={handleImageSelect} className="hidden" />
-                      <div className="aspect-video bg-secondary rounded-2xl border-2 border-dashed border-border flex flex-col items-center justify-center gap-2 cursor-pointer overflow-hidden">
-                        {imagePreviews[0] ? (
-                          <video src={imagePreviews[0]} className="w-full h-full object-cover" />
-                        ) : (
-                          <>
-                            <Upload className="w-10 h-10 text-muted-foreground" />
-                            <p className="text-muted-foreground text-sm">Tap to add video</p>
-                          </>
+                  </div>
+                  <Input placeholder="Plant Name *" value={plantName} onChange={(e) => setPlantName(e.target.value)} className="h-11 rounded-xl" />
+                  <Textarea placeholder="Description" value={plantDescription} onChange={(e) => setPlantDescription(e.target.value)} className="rounded-xl" rows={2} />
+                  <div className="grid grid-cols-2 gap-3">
+                    <Input placeholder="Height" value={plantHeight} onChange={(e) => setPlantHeight(e.target.value)} className="h-11 rounded-xl" />
+                    <Input placeholder="Size (S/M/L)" value={plantSize} onChange={(e) => setPlantSize(e.target.value)} className="h-11 rounded-xl" />
+                  </div>
+                  <Input placeholder="Tags (comma separated)" value={plantTags} onChange={(e) => setPlantTags(e.target.value)} className="h-11 rounded-xl" />
+                  <Button onClick={handleSubmit} disabled={!plantName || isLoading} className="w-full h-11 rounded-xl">
+                    {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : "Publish Plant"}
+                  </Button>
+                </motion.div>
+              ) : (
+                <motion.div
+                  key="media-form"
+                  initial={{ opacity: 0, x: 20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -20 }}
+                  className="space-y-4"
+                >
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-foreground">
+                      {selected === "reel" ? "Video" : "Photos (up to 10)"}
+                    </label>
+                    {selected === "post" ? (
+                      <div className="flex gap-2 flex-wrap">
+                        {imagePreviews.map((preview, index) => (
+                          <div key={index} className="relative w-20 h-20 rounded-xl overflow-hidden group">
+                            <img 
+                              src={preview} 
+                              alt="" 
+                              className="w-full h-full object-cover"
+                              style={editedMediaData[index]?.filterStyle || {}}
+                            />
+                            {/* Edit button */}
+                            <button 
+                              onClick={() => openEditor(index)}
+                              className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                            >
+                              <Wand2 className="w-5 h-5 text-white" />
+                            </button>
+                            {/* Has edits indicator */}
+                            {hasEdits(index) && (
+                              <div className="absolute bottom-0.5 left-0.5 w-4 h-4 bg-primary rounded-full flex items-center justify-center">
+                                <Wand2 className="w-2.5 h-2.5 text-primary-foreground" />
+                              </div>
+                            )}
+                            <button 
+                              onClick={() => removeImage(index)} 
+                              className="absolute top-0.5 right-0.5 w-5 h-5 bg-destructive rounded-full flex items-center justify-center"
+                            >
+                              <X className="w-3 h-3 text-white" />
+                            </button>
+                          </div>
+                        ))}
+                        {imageFiles.length < 10 && (
+                          <label className="w-20 h-20 rounded-xl border-2 border-dashed border-border flex items-center justify-center cursor-pointer hover:border-primary/50 transition-colors">
+                            <input type="file" accept="image/*" multiple onChange={handleImageSelect} className="hidden" />
+                            <Plus className="w-6 h-6 text-muted-foreground" />
+                          </label>
                         )}
                       </div>
-                    </label>
+                    ) : (
+                      <div className="space-y-3">
+                        <label className="block">
+                          <input type="file" accept="video/*" onChange={handleImageSelect} className="hidden" />
+                          <div className="aspect-video bg-secondary rounded-2xl border-2 border-dashed border-border flex flex-col items-center justify-center gap-2 cursor-pointer overflow-hidden relative group">
+                            {imagePreviews[0] ? (
+                              <>
+                                <video 
+                                  src={imagePreviews[0]} 
+                                  className="w-full h-full object-cover"
+                                  style={editedMediaData[0]?.filterStyle || {}}
+                                />
+                                {/* Has edits indicator */}
+                                {hasEdits(0) && (
+                                  <div className="absolute top-2 left-2 px-2 py-1 bg-primary/80 rounded-full flex items-center gap-1">
+                                    <Wand2 className="w-3 h-3 text-primary-foreground" />
+                                    <span className="text-xs text-primary-foreground font-medium">Edited</span>
+                                  </div>
+                                )}
+                              </>
+                            ) : (
+                              <>
+                                <Upload className="w-10 h-10 text-muted-foreground" />
+                                <p className="text-muted-foreground text-sm">Tap to add video</p>
+                              </>
+                            )}
+                          </div>
+                        </label>
+                        
+                        {/* Edit Button for Reel */}
+                        {imagePreviews[0] && (
+                          <Button 
+                            variant="outline" 
+                            onClick={() => openEditor(0)}
+                            className="w-full h-11 rounded-xl gap-2"
+                          >
+                            <Wand2 className="w-4 h-4" />
+                            Add Filters, Text, Music & Stickers
+                          </Button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  
+                  {/* Show edit button for posts when images selected */}
+                  {selected === "post" && imagePreviews.length > 0 && (
+                    <Button 
+                      variant="outline" 
+                      onClick={() => openEditor(0)}
+                      className="w-full h-10 rounded-xl gap-2 text-sm"
+                    >
+                      <Wand2 className="w-4 h-4" />
+                      Edit First Photo (Filters, Text, Stickers)
+                    </Button>
                   )}
-                </div>
-                <Textarea placeholder="Write a caption..." value={caption} onChange={(e) => setCaption(e.target.value)} className="rounded-xl" rows={3} />
-                <Input placeholder="Tags (comma separated)" value={tags} onChange={(e) => setTags(e.target.value)} className="h-11 rounded-xl" />
-                <Button onClick={handleSubmit} disabled={!imageFiles.length || isLoading} className="w-full h-11 rounded-xl">
-                  {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : selected === "post" ? "Post" : "Upload Reel"}
-                </Button>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
-      </SheetContent>
-    </Sheet>
+                  
+                  <Textarea placeholder="Write a caption..." value={caption} onChange={(e) => setCaption(e.target.value)} className="rounded-xl" rows={3} />
+                  <Input placeholder="Tags (comma separated)" value={tags} onChange={(e) => setTags(e.target.value)} className="h-11 rounded-xl" />
+                  <Button onClick={handleSubmit} disabled={!imageFiles.length || isLoading} className="w-full h-11 rounded-xl">
+                    {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : selected === "post" ? "Post" : "Upload Reel"}
+                  </Button>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      {/* Media Editor */}
+      {imagePreviews[editingIndex] && (
+        <MediaEditor
+          open={editorOpen}
+          onOpenChange={setEditorOpen}
+          mediaUrl={imagePreviews[editingIndex]}
+          mediaType={selected === "reel" ? "video" : "image"}
+          onSave={handleEditorSave}
+        />
+      )}
+    </>
   );
 };
 
