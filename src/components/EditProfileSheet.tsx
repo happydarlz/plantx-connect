@@ -1,6 +1,5 @@
 import { useState, useEffect } from "react";
-import { motion } from "framer-motion";
-import { X, MapPin, Loader2, Link as LinkIcon, Plus, Trash2, Navigation } from "lucide-react";
+import { MapPin, Loader2, Link as LinkIcon, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -28,14 +27,11 @@ const EditProfileSheet = ({ open, onOpenChange }: EditProfileSheetProps) => {
   const { profile, user, refreshProfile } = useAuth();
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
-  const [isLocating, setIsLocating] = useState(false);
 
   const [nurseryName, setNurseryName] = useState("");
   const [username, setUsername] = useState("");
   const [bio, setBio] = useState("");
   const [address, setAddress] = useState("");
-  const [latitude, setLatitude] = useState<number | null>(null);
-  const [longitude, setLongitude] = useState<number | null>(null);
   const [profileLinks, setProfileLinks] = useState<ProfileLink[]>([]);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
@@ -46,8 +42,6 @@ const EditProfileSheet = ({ open, onOpenChange }: EditProfileSheetProps) => {
       setUsername(profile.username || "");
       setBio(profile.bio || "");
       setAddress(profile.address || "");
-      setLatitude((profile as any).latitude || null);
-      setLongitude((profile as any).longitude || null);
       try {
         const links = (profile as any).profile_links || [];
         setProfileLinks(Array.isArray(links) ? links : []);
@@ -68,97 +62,7 @@ const EditProfileSheet = ({ open, onOpenChange }: EditProfileSheetProps) => {
     }
   };
 
-  const requestLocationPermission = async () => {
-    setIsLocating(true);
-    
-    try {
-      // Request permission explicitly
-      const permission = await navigator.permissions.query({ name: 'geolocation' });
-      
-      if (permission.state === 'denied') {
-        toast({ 
-          title: "Location Access Denied", 
-          description: "Please enable location in your browser settings",
-          variant: "destructive" 
-        });
-        setIsLocating(false);
-        return;
-      }
-    } catch {
-      // Permission API not supported, continue anyway
-    }
-
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        async (position) => {
-          const { latitude: lat, longitude: lng, accuracy } = position.coords;
-          setLatitude(lat);
-          setLongitude(lng);
-          
-          try {
-            // Use more accurate reverse geocoding
-            const response = await fetch(
-              `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&addressdetails=1`
-            );
-            const data = await response.json();
-            
-            // Build a cleaner address
-            const addr = data.address;
-            let formattedAddress = "";
-            
-            if (addr) {
-              const parts = [];
-              if (addr.road) parts.push(addr.road);
-              if (addr.suburb || addr.neighbourhood) parts.push(addr.suburb || addr.neighbourhood);
-              if (addr.city || addr.town || addr.village) parts.push(addr.city || addr.town || addr.village);
-              if (addr.state) parts.push(addr.state);
-              if (addr.postcode) parts.push(addr.postcode);
-              formattedAddress = parts.join(", ");
-            }
-            
-            if (!formattedAddress) {
-              formattedAddress = data.display_name || `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
-            }
-            
-            setAddress(formattedAddress);
-            toast({ 
-              title: "Location detected!", 
-              description: `Accuracy: ${Math.round(accuracy)}m` 
-            });
-          } catch {
-            setAddress(`${lat.toFixed(6)}, ${lng.toFixed(6)}`);
-          }
-          setIsLocating(false);
-        },
-        (error) => {
-          let message = "Unable to get location";
-          switch(error.code) {
-            case error.PERMISSION_DENIED:
-              message = "Location permission denied. Please enable it in browser settings.";
-              break;
-            case error.POSITION_UNAVAILABLE:
-              message = "Location unavailable. Please try again.";
-              break;
-            case error.TIMEOUT:
-              message = "Location request timed out. Please try again.";
-              break;
-          }
-          toast({ title: "Location Error", description: message, variant: "destructive" });
-          setIsLocating(false);
-        },
-        {
-          enableHighAccuracy: true,
-          timeout: 15000,
-          maximumAge: 0
-        }
-      );
-    } else {
-      toast({ title: "Geolocation not supported", variant: "destructive" });
-      setIsLocating(false);
-    }
-  };
-
-  const addLink = () => {
+const addLink = () => {
     setProfileLinks([...profileLinks, { title: "", url: "" }]);
   };
 
@@ -207,8 +111,6 @@ const EditProfileSheet = ({ open, onOpenChange }: EditProfileSheetProps) => {
           username: username.toLowerCase().replace(/\s/g, ""),
           bio,
           address,
-          latitude,
-          longitude,
           profile_image: profileImageUrl,
           profile_links: JSON.parse(JSON.stringify(profileLinks)),
         })
@@ -226,7 +128,7 @@ const EditProfileSheet = ({ open, onOpenChange }: EditProfileSheetProps) => {
     }
   };
 
-  return (
+return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="bottom" className="h-[90vh] rounded-t-3xl">
         <SheetHeader className="mb-4">
@@ -277,44 +179,23 @@ const EditProfileSheet = ({ open, onOpenChange }: EditProfileSheetProps) => {
             rows={3}
           />
 
-          {/* Location Section */}
+          {/* Address Section - Manual Entry Only */}
           <div className="space-y-3 p-4 bg-secondary rounded-xl">
             <div className="flex items-center gap-2 mb-2">
               <MapPin className="w-4 h-4 text-primary" />
-              <span className="font-medium text-sm">Location</span>
+              <span className="font-medium text-sm">Address</span>
             </div>
             
             <Input
-              placeholder="Enter address manually"
+              placeholder="Enter your address"
               value={address}
               onChange={(e) => setAddress(e.target.value)}
               className="h-11 rounded-xl bg-background"
             />
             
-            <Button
-              variant="outline"
-              onClick={requestLocationPermission}
-              disabled={isLocating}
-              className="w-full h-11 rounded-xl"
-            >
-              {isLocating ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                  Detecting location...
-                </>
-              ) : (
-                <>
-                  <Navigation className="w-4 h-4 mr-2" />
-                  Share My Current Location
-                </>
-              )}
-            </Button>
-            
-            {latitude && longitude && (
-              <p className="text-xs text-muted-foreground text-center">
-                📍 Location saved - Visitors can open in Google Maps
-              </p>
-            )}
+            <p className="text-xs text-muted-foreground">
+              Enter your nursery address so visitors can find you
+            </p>
           </div>
 
           {/* Profile Links */}

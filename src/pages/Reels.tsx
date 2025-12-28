@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { Heart, MessageCircle, Share2, Volume2, VolumeX, Play, Loader2 } from "lucide-react";
+import { Heart, MessageCircle, Share2, Volume2, VolumeX, Play, Bookmark } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import BottomNav from "@/components/BottomNav";
 import { useAuth } from "@/contexts/AuthContext";
@@ -32,16 +32,18 @@ const Reels = () => {
   const [isPlaying, setIsPlaying] = useState(true);
   const [isLoading, setIsLoading] = useState(true);
   const [likedReels, setLikedReels] = useState<Set<string>>(new Set());
+  const [savedReels, setSavedReels] = useState<Set<string>>(new Set());
   const [commentsOpen, setCommentsOpen] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
 
-  useEffect(() => {
+useEffect(() => {
     if (!user) {
       navigate("/auth");
       return;
     }
     fetchReels();
     fetchLikedReels();
+    fetchSavedReels();
   }, [user, navigate]);
 
   const fetchReels = async () => {
@@ -77,10 +79,39 @@ const Reels = () => {
     }
   };
 
-  const fetchLikedReels = async () => {
+const fetchLikedReels = async () => {
     if (!user) return;
     const { data } = await supabase.from("reel_likes").select("reel_id").eq("user_id", user.id);
     setLikedReels(new Set(data?.map((l) => l.reel_id) || []));
+  };
+
+  const fetchSavedReels = async () => {
+    if (!user) return;
+    const { data } = await supabase.from("reel_saves").select("reel_id").eq("user_id", user.id);
+    setSavedReels(new Set(data?.map((s) => s.reel_id) || []));
+  };
+
+  const handleSave = async () => {
+    if (!user || !currentReel) return;
+
+    const isSaved = savedReels.has(currentReel.id);
+    try {
+      if (isSaved) {
+        await supabase.from("reel_saves").delete().eq("reel_id", currentReel.id).eq("user_id", user.id);
+        setSavedReels((prev) => {
+          const newSet = new Set(prev);
+          newSet.delete(currentReel.id);
+          return newSet;
+        });
+        toast({ title: "Removed from saved" });
+      } else {
+        await supabase.from("reel_saves").insert({ reel_id: currentReel.id, user_id: user.id });
+        setSavedReels((prev) => new Set(prev).add(currentReel.id));
+        toast({ title: "Reel saved!" });
+      }
+    } catch (error) {
+      console.error("Save error:", error);
+    }
   };
 
   const handleScroll = (direction: "up" | "down") => {
@@ -304,6 +335,17 @@ const Reels = () => {
             className="flex flex-col items-center"
           >
             <Share2 className="w-8 h-8 text-white" />
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              handleSave();
+            }}
+            className="flex flex-col items-center"
+          >
+            <Bookmark
+              className={`w-8 h-8 ${savedReels.has(currentReel.id) ? "fill-white text-white" : "text-white"}`}
+            />
           </button>
           <button
             onClick={(e) => {
