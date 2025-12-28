@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Bell } from "lucide-react";
+import { Bell, MessageCircle } from "lucide-react";
 import { motion } from "framer-motion";
 import PlantXLogo from "@/components/PlantXLogo";
 import StoryCircle from "@/components/StoryCircle";
@@ -184,17 +184,25 @@ const Home = () => {
       <header className="sticky top-0 bg-background/95 backdrop-blur-sm z-40 px-4 py-3 border-b border-border">
         <div className="flex items-center justify-between">
           <PlantXLogo size="sm" />
-          <button 
-            onClick={() => setNotificationsOpen(true)}
-            className="relative p-2 hover:bg-secondary rounded-full transition-colors"
-          >
-            <Bell className="w-6 h-6 text-foreground" strokeWidth={1.5} />
-            {unreadCount > 0 && (
-              <span className="absolute top-0 right-0 w-5 h-5 bg-primary rounded-full flex items-center justify-center text-[10px] font-bold text-primary-foreground">
-                {unreadCount > 9 ? "9+" : unreadCount}
-              </span>
-            )}
-          </button>
+          <div className="flex items-center gap-1">
+            <button 
+              onClick={() => setNotificationsOpen(true)}
+              className="relative p-2 hover:bg-secondary rounded-full transition-colors"
+            >
+              <Bell className="w-6 h-6 text-foreground" strokeWidth={1.5} />
+              {unreadCount > 0 && (
+                <span className="absolute top-1 right-1 w-4 h-4 bg-destructive rounded-full flex items-center justify-center text-[9px] font-bold text-destructive-foreground">
+                  {unreadCount > 9 ? "9+" : unreadCount}
+                </span>
+              )}
+            </button>
+            <button 
+              onClick={() => navigate("/chat")}
+              className="relative p-2 hover:bg-secondary rounded-full transition-colors"
+            >
+              <MessageCircle className="w-6 h-6 text-foreground" strokeWidth={1.5} />
+            </button>
+          </div>
         </div>
       </header>
 

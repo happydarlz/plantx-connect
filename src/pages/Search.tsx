@@ -1,11 +1,12 @@
 import { useState, useEffect } from "react";
-import { Search as SearchIcon, X, User, Leaf, Hash } from "lucide-react";
+import { Search as SearchIcon, X, Store, Leaf, Hash } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Input } from "@/components/ui/input";
 import PlantCard from "@/components/PlantCard";
 import BottomNav from "@/components/BottomNav";
 import { supabase } from "@/integrations/supabase/client";
 import { useNavigate } from "react-router-dom";
+import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 
 interface Plant {
   id: string;
@@ -26,6 +27,7 @@ interface UserProfile {
   nursery_name: string;
   profile_image: string | null;
   bio: string | null;
+  address: string | null;
 }
 
 const popularTags = ["Indoor", "Outdoor", "Succulents", "Flowering", "Low Light", "Pet Safe", "Rare", "Tropical"];
@@ -33,7 +35,7 @@ const popularTags = ["Indoor", "Outdoor", "Succulents", "Flowering", "Low Light"
 const Search = () => {
   const navigate = useNavigate();
   const [query, setQuery] = useState("");
-  const [activeTab, setActiveTab] = useState<"plants" | "users" | "tags">("plants");
+  const [activeTab, setActiveTab] = useState<"plants" | "nurseries" | "tags">("plants");
   const [plants, setPlants] = useState<Plant[]>([]);
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -111,12 +113,16 @@ const Search = () => {
         );
 
         setPlants(plantsWithProfiles);
-      } else if (activeTab === "users") {
-        const { data, error } = await supabase
+      } else if (activeTab === "nurseries") {
+        let nurseriesQuery = supabase
           .from("profiles")
-          .select("user_id, username, nursery_name, profile_image, bio")
-          .or(`username.ilike.%${query}%,nursery_name.ilike.%${query}%`)
-          .limit(20);
+          .select("user_id, username, nursery_name, profile_image, bio, address");
+
+        if (query) {
+          nurseriesQuery = nurseriesQuery.or(`username.ilike.%${query}%,nursery_name.ilike.%${query}%,address.ilike.%${query}%`);
+        }
+
+        const { data, error } = await nurseriesQuery.limit(30);
 
         if (error) throw error;
         setUsers(data || []);
@@ -171,19 +177,19 @@ const Search = () => {
         </div>
 
         {/* Tabs */}
-        <div className="flex gap-3 mt-4">
-          {(["plants", "users", "tags"] as const).map((tab) => (
+        <div className="flex gap-2 mt-4">
+          {(["plants", "nurseries", "tags"] as const).map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
-              className={`px-4 py-2 rounded-full text-sm font-medium transition-all flex items-center gap-1 ${
+              className={`px-4 py-2.5 rounded-xl text-sm font-medium transition-all flex items-center gap-1.5 ${
                 activeTab === tab
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-secondary text-muted-foreground"
+                  ? "bg-primary text-primary-foreground shadow-md"
+                  : "bg-secondary text-muted-foreground hover:bg-secondary/80"
               }`}
             >
               {tab === "plants" && <Leaf className="w-4 h-4" />}
-              {tab === "users" && <User className="w-4 h-4" />}
+              {tab === "nurseries" && <Store className="w-4 h-4" />}
               {tab === "tags" && <Hash className="w-4 h-4" />}
               {tab.charAt(0).toUpperCase() + tab.slice(1)}
             </button>
@@ -273,9 +279,9 @@ const Search = () => {
             </motion.div>
           )}
 
-          {activeTab === "users" && (
+          {activeTab === "nurseries" && (
             <motion.div
-              key="users"
+              key="nurseries"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
@@ -289,26 +295,28 @@ const Search = () => {
                   />
                 </div>
               ) : users.length > 0 ? (
-                <div className="space-y-2">
+                <div className="space-y-3">
                   {users.map((user, index) => (
                     <motion.button
                       key={user.user_id}
                       onClick={() => goToUserProfile(user.username)}
-                      className="w-full flex items-center gap-3 p-3 rounded-xl bg-card hover:bg-secondary transition-colors"
-                      initial={{ opacity: 0, x: -20 }}
-                      animate={{ opacity: 1, x: 0 }}
+                      className="w-full flex items-center gap-4 p-4 rounded-2xl bg-card border border-border hover:border-primary/30 hover:shadow-md transition-all"
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
                       transition={{ delay: index * 0.05 }}
                     >
-                      <div className="w-14 h-14 rounded-full overflow-hidden bg-secondary">
-                        <img
-                          src={user.profile_image || "https://images.unsplash.com/photo-1466781783364-36c955e42a7f?w=100"}
-                          alt={user.nursery_name}
-                          className="w-full h-full object-cover"
-                        />
-                      </div>
-                      <div className="flex-1 text-left">
-                        <h3 className="font-semibold text-foreground">{user.nursery_name}</h3>
-                        <p className="text-sm text-muted-foreground">@{user.username}</p>
+                      <Avatar className="w-16 h-16 border-2 border-primary/20">
+                        <AvatarImage src={user.profile_image || undefined} alt={user.nursery_name} />
+                        <AvatarFallback className="bg-primary/10 text-primary text-lg font-semibold">
+                          {user.nursery_name.charAt(0)}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="flex-1 text-left min-w-0">
+                        <h3 className="font-semibold text-foreground text-base">{user.nursery_name}</h3>
+                        <p className="text-sm text-primary font-medium">@{user.username}</p>
+                        {user.address && (
+                          <p className="text-xs text-muted-foreground truncate mt-1">📍 {user.address}</p>
+                        )}
                         {user.bio && (
                           <p className="text-xs text-muted-foreground truncate mt-0.5">{user.bio}</p>
                         )}
@@ -316,13 +324,10 @@ const Search = () => {
                     </motion.button>
                   ))}
                 </div>
-              ) : query ? (
-                <div className="text-center py-12">
-                  <p className="text-muted-foreground">No users found</p>
-                </div>
               ) : (
                 <div className="text-center py-12">
-                  <p className="text-muted-foreground">Search for users by username or nursery name</p>
+                  <Store className="w-12 h-12 text-muted-foreground mx-auto mb-3" />
+                  <p className="text-muted-foreground">Search nurseries by name or location</p>
                 </div>
               )}
             </motion.div>
