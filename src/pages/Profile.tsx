@@ -1,5 +1,4 @@
 import { useState, useEffect } from "react";
-import { motion } from "framer-motion";
 import { Settings, Share2, MapPin, Grid3X3, Leaf, Film, Bookmark, Link as LinkIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import BottomNav from "@/components/BottomNav";
@@ -34,6 +33,20 @@ interface Plant {
   name: string;
 }
 
+interface Reel {
+  id: string;
+  video_url: string;
+  caption: string | null;
+}
+
+interface SavedPost {
+  id: string;
+  post: {
+    id: string;
+    image_url: string;
+  } | null;
+}
+
 const formatNumber = (num: number) => {
   if (num >= 1000000) return (num / 1000000).toFixed(1) + "M";
   if (num >= 1000) return (num / 1000).toFixed(1) + "K";
@@ -45,9 +58,12 @@ const Profile = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState("posts");
+  const [savedFilter, setSavedFilter] = useState<"posts" | "reels">("posts");
   const [stats, setStats] = useState<Stats>({ postsCount: 0, followers: 0, following: 0 });
   const [posts, setPosts] = useState<Post[]>([]);
   const [plants, setPlants] = useState<Plant[]>([]);
+  const [reels, setReels] = useState<Reel[]>([]);
+  const [savedPosts, setSavedPosts] = useState<SavedPost[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [editProfileOpen, setEditProfileOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -64,36 +80,38 @@ const Profile = () => {
     if (!user) return;
 
     try {
-      const { data: postsData, count: postsCount } = await supabase
-        .from("posts")
-        .select("id, image_url", { count: "exact" })
-        .eq("user_id", user.id)
-        .order("created_at", { ascending: false });
+      const [postsResult, plantsResult, reelsResult, savedResult, followersResult, followingResult] = await Promise.all([
+        supabase.from("posts").select("id, image_url", { count: "exact" }).eq("user_id", user.id).order("created_at", { ascending: false }),
+        supabase.from("plants").select("id, image_url, name").eq("user_id", user.id).order("created_at", { ascending: false }),
+        supabase.from("reels").select("id, video_url, caption").eq("user_id", user.id).order("created_at", { ascending: false }),
+        supabase.from("post_saves").select("id, post_id").eq("user_id", user.id).order("created_at", { ascending: false }),
+        supabase.from("follows").select("id", { count: "exact" }).eq("following_id", user.id),
+        supabase.from("follows").select("id", { count: "exact" }).eq("follower_id", user.id),
+      ]);
 
-      setPosts(postsData || []);
+      setPosts(postsResult.data || []);
+      setPlants(plantsResult.data || []);
+      setReels(reelsResult.data || []);
 
-      const { data: plantsData } = await supabase
-        .from("plants")
-        .select("id, image_url, name")
-        .eq("user_id", user.id)
-        .order("created_at", { ascending: false });
-
-      setPlants(plantsData || []);
-
-      const { count: followersCount } = await supabase
-        .from("follows")
-        .select("id", { count: "exact" })
-        .eq("following_id", user.id);
-
-      const { count: followingCount } = await supabase
-        .from("follows")
-        .select("id", { count: "exact" })
-        .eq("follower_id", user.id);
+      // Fetch saved posts details
+      if (savedResult.data && savedResult.data.length > 0) {
+        const postIds = savedResult.data.map((s) => s.post_id);
+        const { data: savedPostsData } = await supabase
+          .from("posts")
+          .select("id, image_url")
+          .in("id", postIds);
+        
+        const mappedSaved = savedResult.data.map((s) => ({
+          id: s.id,
+          post: savedPostsData?.find((p) => p.id === s.post_id) || null,
+        }));
+        setSavedPosts(mappedSaved);
+      }
 
       setStats({
-        postsCount: postsCount || 0,
-        followers: followersCount || 0,
-        following: followingCount || 0,
+        postsCount: postsResult.count || 0,
+        followers: followersResult.count || 0,
+        following: followingResult.count || 0,
       });
     } catch (error) {
       console.error("Error fetching data:", error);
@@ -119,11 +137,7 @@ const Profile = () => {
     if (isLoading) {
       return (
         <div className="flex justify-center py-12">
-          <motion.div
-            className="w-8 h-8 border-4 border-primary/30 border-t-primary rounded-full"
-            animate={{ rotate: 360 }}
-            transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-          />
+          <div className="w-8 h-8 border-4 border-primary/30 border-t-primary rounded-full animate-spin" />
         </div>
       );
     }
@@ -138,17 +152,10 @@ const Profile = () => {
       }
       return (
         <div className="grid grid-cols-3 gap-0.5">
-          {posts.map((post, index) => (
-            <motion.button
-              key={post.id}
-              className="aspect-square bg-secondary relative overflow-hidden"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: index * 0.05 }}
-              whileTap={{ scale: 0.98 }}
-            >
+          {posts.map((post) => (
+            <button key={post.id} className="aspect-square bg-secondary relative overflow-hidden">
               <img src={post.image_url} alt="" className="w-full h-full object-cover" />
-            </motion.button>
+            </button>
           ))}
         </div>
       );
@@ -164,15 +171,8 @@ const Profile = () => {
       }
       return (
         <div className="grid grid-cols-3 gap-0.5">
-          {plants.map((plant, index) => (
-            <motion.button
-              key={plant.id}
-              className="aspect-square bg-secondary relative overflow-hidden"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: index * 0.05 }}
-              whileTap={{ scale: 0.98 }}
-            >
+          {plants.map((plant) => (
+            <button key={plant.id} className="aspect-square bg-secondary relative overflow-hidden">
               {plant.image_url ? (
                 <img src={plant.image_url} alt={plant.name} className="w-full h-full object-cover" />
               ) : (
@@ -180,17 +180,87 @@ const Profile = () => {
                   <Leaf className="w-8 h-8 text-muted-foreground" />
                 </div>
               )}
-            </motion.button>
+            </button>
           ))}
         </div>
       );
     }
 
-    return (
-      <div className="text-center py-12">
-        <p className="text-muted-foreground">Coming soon!</p>
-      </div>
-    );
+    if (activeTab === "reels") {
+      if (reels.length === 0) {
+        return (
+          <div className="text-center py-12">
+            <p className="text-muted-foreground">No reels yet</p>
+          </div>
+        );
+      }
+      return (
+        <div className="grid grid-cols-3 gap-0.5">
+          {reels.map((reel) => (
+            <button key={reel.id} className="aspect-[9/16] bg-secondary relative overflow-hidden">
+              <video src={reel.video_url} className="w-full h-full object-cover" muted />
+              <div className="absolute inset-0 flex items-center justify-center bg-black/20">
+                <Film className="w-6 h-6 text-white" />
+              </div>
+            </button>
+          ))}
+        </div>
+      );
+    }
+
+    if (activeTab === "saved") {
+      return (
+        <div>
+          {/* Saved filter */}
+          <div className="flex gap-2 p-4">
+            <button
+              onClick={() => setSavedFilter("posts")}
+              className={`px-4 py-2 rounded-full text-sm font-medium transition-all ${
+                savedFilter === "posts" ? "bg-primary text-primary-foreground" : "bg-secondary text-muted-foreground"
+              }`}
+            >
+              Posts
+            </button>
+            <button
+              onClick={() => setSavedFilter("reels")}
+              className={`px-4 py-2 rounded-full text-sm font-medium transition-all ${
+                savedFilter === "reels" ? "bg-primary text-primary-foreground" : "bg-secondary text-muted-foreground"
+              }`}
+            >
+              Reels
+            </button>
+          </div>
+
+          {savedFilter === "posts" && (
+            <>
+              {savedPosts.filter((s) => s.post).length === 0 ? (
+                <div className="text-center py-12">
+                  <Bookmark className="w-12 h-12 text-muted-foreground mx-auto mb-2" />
+                  <p className="text-muted-foreground">No saved posts</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-3 gap-0.5">
+                  {savedPosts.filter((s) => s.post).map((saved) => (
+                    <button key={saved.id} className="aspect-square bg-secondary relative overflow-hidden">
+                      <img src={saved.post!.image_url} alt="" className="w-full h-full object-cover" />
+                    </button>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+
+          {savedFilter === "reels" && (
+            <div className="text-center py-12">
+              <Film className="w-12 h-12 text-muted-foreground mx-auto mb-2" />
+              <p className="text-muted-foreground">Saved reels coming soon</p>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    return null;
   };
 
   // Get profile links
@@ -207,11 +277,7 @@ const Profile = () => {
   if (!profile) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
-        <motion.div
-          className="w-8 h-8 border-4 border-primary/30 border-t-primary rounded-full"
-          animate={{ rotate: 360 }}
-          transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-        />
+        <div className="w-8 h-8 border-4 border-primary/30 border-t-primary rounded-full animate-spin" />
       </div>
     );
   }
@@ -240,11 +306,7 @@ const Profile = () => {
       {/* Profile Info */}
       <section className="px-4 py-6">
         <div className="flex items-start gap-4">
-          <motion.div
-            className="story-ring rounded-full"
-            initial={{ scale: 0.9, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-          >
+          <div className="story-ring rounded-full">
             <div className="w-20 h-20 rounded-full bg-background p-0.5">
               <img
                 src={profile.profile_image || "https://images.unsplash.com/photo-1466781783364-36c955e42a7f?w=200&h=200&fit=crop"}
@@ -252,7 +314,7 @@ const Profile = () => {
                 className="w-full h-full rounded-full object-cover"
               />
             </div>
-          </motion.div>
+          </div>
 
           <div className="flex-1 grid grid-cols-3 gap-2 text-center">
             <div>

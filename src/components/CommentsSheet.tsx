@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { Send, Loader2, Trash2, Heart } from "lucide-react";
+import { Send, Loader2, Trash2 } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
@@ -8,6 +7,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { useNavigate } from "react-router-dom";
+import { sendCommentNotification } from "@/lib/notifications";
 
 interface Comment {
   id: string;
@@ -29,7 +29,7 @@ interface CommentsSheetProps {
 }
 
 const CommentsSheet = ({ open, onOpenChange, postId, postUserId }: CommentsSheetProps) => {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const { toast } = useToast();
   const navigate = useNavigate();
   const [comments, setComments] = useState<Comment[]>([]);
@@ -109,6 +109,8 @@ const CommentsSheet = ({ open, onOpenChange, postId, postUserId }: CommentsSheet
           post_id: postId,
           message_text: newComment.trim().slice(0, 50),
         });
+        // Send browser notification
+        if (profile) sendCommentNotification(profile.username);
       }
 
       setNewComment("");
@@ -165,48 +167,40 @@ const CommentsSheet = ({ open, onOpenChange, postId, postUserId }: CommentsSheet
                 <p className="text-sm text-muted-foreground mt-1">Be the first to comment!</p>
               </div>
             ) : (
-              <AnimatePresence>
-                {comments.map((comment, index) => (
-                  <motion.div
-                    key={comment.id}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: index * 0.03 }}
-                    className="flex gap-3"
-                  >
-                    <button onClick={() => comment.profiles?.username && goToProfile(comment.profiles.username)}>
-                      <Avatar className="w-9 h-9">
-                        <AvatarImage src={comment.profiles?.profile_image || undefined} />
-                        <AvatarFallback className="bg-primary/10 text-primary text-xs">
-                          {comment.profiles?.nursery_name?.charAt(0) || "?"}
-                        </AvatarFallback>
-                      </Avatar>
-                    </button>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <button
-                            onClick={() => comment.profiles?.username && goToProfile(comment.profiles.username)}
-                            className="font-semibold text-sm text-foreground hover:underline"
-                          >
-                            {comment.profiles?.username || "unknown"}
-                          </button>
-                          <span className="text-xs text-muted-foreground ml-2">{formatTime(comment.created_at)}</span>
-                        </div>
-                        {user?.id === comment.user_id && (
-                          <button
-                            onClick={() => handleDelete(comment.id)}
-                            className="p-1 hover:bg-secondary rounded"
-                          >
-                            <Trash2 className="w-3.5 h-3.5 text-muted-foreground" />
-                          </button>
-                        )}
+              comments.map((comment) => (
+                <div key={comment.id} className="flex gap-3">
+                  <button onClick={() => comment.profiles?.username && goToProfile(comment.profiles.username)}>
+                    <Avatar className="w-9 h-9">
+                      <AvatarImage src={comment.profiles?.profile_image || undefined} />
+                      <AvatarFallback className="bg-primary/10 text-primary text-xs">
+                        {comment.profiles?.nursery_name?.charAt(0) || "?"}
+                      </AvatarFallback>
+                    </Avatar>
+                  </button>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <button
+                          onClick={() => comment.profiles?.username && goToProfile(comment.profiles.username)}
+                          className="font-semibold text-sm text-foreground hover:underline"
+                        >
+                          {comment.profiles?.username || "unknown"}
+                        </button>
+                        <span className="text-xs text-muted-foreground ml-2">{formatTime(comment.created_at)}</span>
                       </div>
-                      <p className="text-sm text-foreground mt-0.5">{comment.content}</p>
+                      {user?.id === comment.user_id && (
+                        <button
+                          onClick={() => handleDelete(comment.id)}
+                          className="p-1 hover:bg-secondary rounded"
+                        >
+                          <Trash2 className="w-3.5 h-3.5 text-muted-foreground" />
+                        </button>
+                      )}
                     </div>
-                  </motion.div>
-                ))}
-              </AnimatePresence>
+                    <p className="text-sm text-foreground mt-0.5">{comment.content}</p>
+                  </div>
+                </div>
+              ))
             )}
           </div>
 

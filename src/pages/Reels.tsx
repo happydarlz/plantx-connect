@@ -1,14 +1,12 @@
 import { useState, useEffect, useRef } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { Heart, MessageCircle, Share2, Volume2, VolumeX, Play, Send, Loader2, X } from "lucide-react";
+import { Heart, MessageCircle, Share2, Volume2, VolumeX, Play, Loader2 } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { Input } from "@/components/ui/input";
-import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import BottomNav from "@/components/BottomNav";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { useNavigate } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
+import { sendLikeNotification, sendFollowNotification } from "@/lib/notifications";
 
 interface Reel {
   id: string;
@@ -24,16 +22,8 @@ interface Reel {
   comments_count: number;
 }
 
-interface Comment {
-  id: string;
-  content: string;
-  user_id: string;
-  created_at: string;
-  profiles: { username: string; profile_image: string | null } | null;
-}
-
 const Reels = () => {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
   const [reels, setReels] = useState<Reel[]>([]);
@@ -43,9 +33,6 @@ const Reels = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [likedReels, setLikedReels] = useState<Set<string>>(new Set());
   const [commentsOpen, setCommentsOpen] = useState(false);
-  const [comments, setComments] = useState<Comment[]>([]);
-  const [newComment, setNewComment] = useState("");
-  const [loadingComments, setLoadingComments] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
@@ -77,7 +64,7 @@ const Reels = () => {
             ...reel,
             profiles: profileResult.data,
             likes_count: likesResult.count || 0,
-            comments_count: 0, // Reels don't have comments table yet
+            comments_count: 0,
           };
         })
       );
@@ -144,6 +131,8 @@ const Reels = () => {
             type: "like",
             from_user_id: user.id,
           });
+          // Send browser notification
+          if (profile) sendLikeNotification(profile.username, "reel");
         }
       }
     } catch (error) {
@@ -182,6 +171,8 @@ const Reels = () => {
         type: "follow",
         from_user_id: user.id,
       });
+      // Send browser notification
+      if (profile) sendFollowNotification(profile.username);
       toast({ title: "Following!" });
     } catch (error) {
       console.error("Follow error:", error);
@@ -199,11 +190,7 @@ const Reels = () => {
   if (isLoading) {
     return (
       <div className="min-h-screen bg-black flex items-center justify-center">
-        <motion.div
-          className="w-8 h-8 border-4 border-white/30 border-t-white rounded-full"
-          animate={{ rotate: 360 }}
-          transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-        />
+        <div className="w-8 h-8 border-4 border-white/30 border-t-white rounded-full animate-spin" />
       </div>
     );
   }
@@ -211,13 +198,13 @@ const Reels = () => {
   if (reels.length === 0) {
     return (
       <div className="min-h-screen bg-background pb-20 flex flex-col items-center justify-center">
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="text-center px-6">
+        <div className="text-center px-6">
           <div className="w-20 h-20 bg-secondary rounded-full flex items-center justify-center mx-auto mb-4">
             <Play className="w-10 h-10 text-muted-foreground" />
           </div>
           <h2 className="text-xl font-semibold text-foreground mb-2">No Reels Yet</h2>
           <p className="text-muted-foreground">Be the first to create a reel!</p>
-        </motion.div>
+        </div>
         <BottomNav />
       </div>
     );
@@ -225,116 +212,109 @@ const Reels = () => {
 
   return (
     <div className="min-h-screen bg-black relative overflow-hidden">
-      <AnimatePresence mode="wait">
-        <motion.div
-          key={currentIndex}
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          className="absolute inset-0"
-          onClick={togglePlay}
-          onTouchStart={(e) => {
-            const startY = e.touches[0].clientY;
-            const handleTouchEnd = (endEvent: TouchEvent) => {
-              const endY = endEvent.changedTouches[0].clientY;
-              const diff = startY - endY;
-              if (diff > 50) handleScroll("down");
-              else if (diff < -50) handleScroll("up");
-              document.removeEventListener("touchend", handleTouchEnd);
-            };
-            document.addEventListener("touchend", handleTouchEnd);
-          }}
-        >
-          <div className="w-full h-full bg-gradient-to-b from-gray-900 to-black flex items-center justify-center">
-            <video
-              ref={videoRef}
-              src={currentReel.video_url}
-              className="w-full h-full object-cover"
-              loop
-              muted={isMuted}
-              autoPlay
-              playsInline
-            />
-          </div>
+      <div
+        className="absolute inset-0"
+        onClick={togglePlay}
+        onTouchStart={(e) => {
+          const startY = e.touches[0].clientY;
+          const handleTouchEnd = (endEvent: TouchEvent) => {
+            const endY = endEvent.changedTouches[0].clientY;
+            const diff = startY - endY;
+            if (diff > 50) handleScroll("down");
+            else if (diff < -50) handleScroll("up");
+            document.removeEventListener("touchend", handleTouchEnd);
+          };
+          document.addEventListener("touchend", handleTouchEnd);
+        }}
+      >
+        <div className="w-full h-full bg-gradient-to-b from-gray-900 to-black flex items-center justify-center">
+          <video
+            ref={videoRef}
+            src={currentReel.video_url}
+            className="w-full h-full object-cover"
+            loop
+            muted={isMuted}
+            autoPlay
+            playsInline
+          />
+        </div>
 
-          {!isPlaying && (
-            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-              <div className="w-20 h-20 bg-black/50 rounded-full flex items-center justify-center">
-                <Play className="w-10 h-10 text-white" />
-              </div>
+        {!isPlaying && (
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+            <div className="w-20 h-20 bg-black/50 rounded-full flex items-center justify-center">
+              <Play className="w-10 h-10 text-white" />
             </div>
-          )}
-
-          <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-transparent to-black/60 pointer-events-none" />
-
-          {/* User info */}
-          <div className="absolute bottom-24 left-4 right-16">
-            <button onClick={goToProfile} className="flex items-center gap-3 mb-3">
-              <div className="w-10 h-10 rounded-full overflow-hidden border-2 border-white">
-                <img
-                  src={currentReel.profiles?.profile_image || "https://images.unsplash.com/photo-1466781783364-36c955e42a7f?w=100"}
-                  alt=""
-                  className="w-full h-full object-cover"
-                />
-              </div>
-              <span className="text-white font-semibold">@{currentReel.profiles?.username}</span>
-            </button>
-            {user && currentReel.user_id !== user.id && (
-              <button
-                onClick={handleFollow}
-                className="px-4 py-1.5 border border-white rounded-full text-white text-sm mb-3"
-              >
-                Follow
-              </button>
-            )}
-            <p className="text-white text-sm">{currentReel.caption}</p>
           </div>
+        )}
 
-          {/* Side actions */}
-          <div className="absolute right-4 bottom-32 flex flex-col items-center gap-6">
-            <motion.button
-              onClick={(e) => {
-                e.stopPropagation();
-                handleLike();
-              }}
-              whileTap={{ scale: 0.8 }}
-              className="flex flex-col items-center"
-            >
-              <Heart
-                className={`w-8 h-8 ${likedReels.has(currentReel.id) ? "fill-red-500 text-red-500" : "text-white"}`}
+        <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-transparent to-black/60 pointer-events-none" />
+
+        {/* User info */}
+        <div className="absolute bottom-24 left-4 right-16">
+          <button onClick={goToProfile} className="flex items-center gap-3 mb-3">
+            <div className="w-10 h-10 rounded-full overflow-hidden border-2 border-white">
+              <img
+                src={currentReel.profiles?.profile_image || "https://images.unsplash.com/photo-1466781783364-36c955e42a7f?w=100"}
+                alt=""
+                className="w-full h-full object-cover"
               />
-              <span className="text-white text-xs mt-1">{currentReel.likes_count}</span>
-            </motion.button>
+            </div>
+            <span className="text-white font-semibold">@{currentReel.profiles?.username}</span>
+          </button>
+          {user && currentReel.user_id !== user.id && (
             <button
-              onClick={(e) => {
-                e.stopPropagation();
-                setCommentsOpen(true);
-              }}
-              className="flex flex-col items-center"
+              onClick={handleFollow}
+              className="px-4 py-1.5 border border-white rounded-full text-white text-sm mb-3"
             >
-              <MessageCircle className="w-8 h-8 text-white" />
-              <span className="text-white text-xs mt-1">0</span>
+              Follow
             </button>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                handleShare();
-              }}
-              className="flex flex-col items-center"
-            >
-              <Share2 className="w-8 h-8 text-white" />
-            </button>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                setIsMuted(!isMuted);
-              }}
-            >
-              {isMuted ? <VolumeX className="w-8 h-8 text-white" /> : <Volume2 className="w-8 h-8 text-white" />}
-            </button>
-          </div>
-        </motion.div>
-      </AnimatePresence>
+          )}
+          <p className="text-white text-sm">{currentReel.caption}</p>
+        </div>
+
+        {/* Side actions */}
+        <div className="absolute right-4 bottom-32 flex flex-col items-center gap-6">
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              handleLike();
+            }}
+            className="flex flex-col items-center active:scale-90 transition-transform"
+          >
+            <Heart
+              className={`w-8 h-8 ${likedReels.has(currentReel.id) ? "fill-red-500 text-red-500" : "text-white"}`}
+            />
+            <span className="text-white text-xs mt-1">{currentReel.likes_count}</span>
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setCommentsOpen(true);
+            }}
+            className="flex flex-col items-center"
+          >
+            <MessageCircle className="w-8 h-8 text-white" />
+            <span className="text-white text-xs mt-1">0</span>
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              handleShare();
+            }}
+            className="flex flex-col items-center"
+          >
+            <Share2 className="w-8 h-8 text-white" />
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setIsMuted(!isMuted);
+            }}
+          >
+            {isMuted ? <VolumeX className="w-8 h-8 text-white" /> : <Volume2 className="w-8 h-8 text-white" />}
+          </button>
+        </div>
+      </div>
 
       {/* Progress indicators */}
       <div className="absolute top-4 left-4 right-4 flex gap-1 z-10">
