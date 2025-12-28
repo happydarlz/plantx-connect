@@ -1,7 +1,7 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, ImagePlus, Video, Leaf, Camera, Upload, Loader2 } from "lucide-react";
+import { X, ImagePlus, Video, Leaf, Camera, Upload, Loader2, Plus, Trash2, MapPin } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -9,14 +9,14 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 
-type CreateType = "plant" | "post" | "reel" | null;
+type CreateType = "plant" | "post" | "reel" | "story" | null;
 
 const createOptions = [
   {
     id: "plant" as CreateType,
     icon: Leaf,
     title: "Add Plant",
-    description: "List a plant for sale",
+    description: "List a plant for others",
     color: "bg-primary",
   },
   {
@@ -27,11 +27,18 @@ const createOptions = [
     color: "bg-plantx-soft",
   },
   {
+    id: "story" as CreateType,
+    icon: Camera,
+    title: "Add Story",
+    description: "Share a 24-hour story",
+    color: "bg-accent",
+  },
+  {
     id: "reel" as CreateType,
     icon: Video,
     title: "Create Reel",
     description: "Share a short video",
-    color: "bg-accent",
+    color: "bg-orange-500",
   },
 ];
 
@@ -42,16 +49,15 @@ const Create = () => {
   const [selected, setSelected] = useState<CreateType>(null);
   const [isLoading, setIsLoading] = useState(false);
 
-  // Image upload
-  const [imageFile, setImageFile] = useState<File | null>(null);
-  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  // Multiple images support
+  const [imageFiles, setImageFiles] = useState<File[]>([]);
+  const [imagePreviews, setImagePreviews] = useState<string[]>([]);
 
   // Plant form
   const [plantName, setPlantName] = useState("");
   const [plantDescription, setPlantDescription] = useState("");
   const [plantHeight, setPlantHeight] = useState("");
   const [plantSize, setPlantSize] = useState("");
-  const [plantPrice, setPlantPrice] = useState("");
   const [plantTags, setPlantTags] = useState("");
 
   // Post/Reel form
@@ -65,36 +71,50 @@ const Create = () => {
   }, [user, navigate]);
 
   const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      setImageFile(file);
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+
+    const newFiles = [...imageFiles, ...files].slice(0, 10); // Max 10 images
+    setImageFiles(newFiles);
+
+    // Generate previews
+    const previews: string[] = [];
+    newFiles.forEach((file) => {
       const reader = new FileReader();
-      reader.onload = () => setImagePreview(reader.result as string);
+      reader.onload = () => {
+        previews.push(reader.result as string);
+        if (previews.length === newFiles.length) {
+          setImagePreviews(previews);
+        }
+      };
       reader.readAsDataURL(file);
-    }
+    });
   };
 
-  const uploadImage = async (folder: string): Promise<string | null> => {
-    if (!imageFile || !user) return null;
+  const removeImage = (index: number) => {
+    setImageFiles(imageFiles.filter((_, i) => i !== index));
+    setImagePreviews(imagePreviews.filter((_, i) => i !== index));
+  };
 
-    const fileExt = imageFile.name.split(".").pop();
-    const fileName = `${Date.now()}.${fileExt}`;
-    const filePath = `${user.id}/${folder}/${fileName}`;
+  const uploadImages = async (folder: string): Promise<string[]> => {
+    if (!imageFiles.length || !user) return [];
 
-    const { error } = await supabase.storage
-      .from("uploads")
-      .upload(filePath, imageFile);
+    const urls: string[] = [];
+    for (const file of imageFiles) {
+      const fileExt = file.name.split(".").pop();
+      const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
+      const filePath = `${user.id}/${folder}/${fileName}`;
 
-    if (error) {
-      console.error("Upload error:", error);
-      return null;
+      const { error } = await supabase.storage.from("uploads").upload(filePath, file);
+
+      if (!error) {
+        const {
+          data: { publicUrl },
+        } = supabase.storage.from("uploads").getPublicUrl(filePath);
+        urls.push(publicUrl);
+      }
     }
-
-    const { data: { publicUrl } } = supabase.storage
-      .from("uploads")
-      .getPublicUrl(filePath);
-
-    return publicUrl;
+    return urls;
   };
 
   const handleSubmitPlant = async () => {
@@ -107,7 +127,7 @@ const Create = () => {
     setIsLoading(true);
 
     try {
-      const imageUrl = await uploadImage("plants");
+      const imageUrls = await uploadImages("plants");
 
       const { error } = await supabase.from("plants").insert({
         user_id: user.id,
@@ -115,9 +135,9 @@ const Create = () => {
         description: plantDescription || null,
         height: plantHeight || null,
         size: plantSize || null,
-        price: plantPrice ? parseFloat(plantPrice) : null,
         tags: plantTags ? plantTags.split(",").map((t) => t.trim()) : [],
-        image_url: imageUrl,
+        image_url: imageUrls[0] || null,
+        image_urls: imageUrls,
       });
 
       if (error) throw error;
@@ -133,7 +153,7 @@ const Create = () => {
   };
 
   const handleSubmitPost = async () => {
-    if (!imageFile) {
+    if (!imageFiles.length) {
       toast({ title: "Image is required", variant: "destructive" });
       return;
     }
@@ -142,15 +162,16 @@ const Create = () => {
     setIsLoading(true);
 
     try {
-      const imageUrl = await uploadImage("posts");
+      const imageUrls = await uploadImages("posts");
 
-      if (!imageUrl) {
-        throw new Error("Failed to upload image");
+      if (!imageUrls.length) {
+        throw new Error("Failed to upload images");
       }
 
       const { error } = await supabase.from("posts").insert({
         user_id: user.id,
-        image_url: imageUrl,
+        image_url: imageUrls[0],
+        image_urls: imageUrls,
         caption: caption || null,
         tags: tags ? tags.split(",").map((t) => t.trim()) : [],
       });
@@ -167,21 +188,98 @@ const Create = () => {
     }
   };
 
+  const handleSubmitStory = async () => {
+    if (!imageFiles.length) {
+      toast({ title: "Image is required", variant: "destructive" });
+      return;
+    }
+
+    if (!user) return;
+    setIsLoading(true);
+
+    try {
+      const imageUrls = await uploadImages("stories");
+
+      if (!imageUrls.length) {
+        throw new Error("Failed to upload image");
+      }
+
+      const { error } = await supabase.from("stories").insert({
+        user_id: user.id,
+        image_url: imageUrls[0],
+      });
+
+      if (error) throw error;
+
+      toast({ title: "Story added! ✨", description: "Visible for 24 hours" });
+      navigate("/home");
+    } catch (error) {
+      console.error("Error:", error);
+      toast({ title: "Error", description: "Failed to create story", variant: "destructive" });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleSubmitReel = async () => {
+    if (!imageFiles.length) {
+      toast({ title: "Video is required", variant: "destructive" });
+      return;
+    }
+
+    if (!user) return;
+    setIsLoading(true);
+
+    try {
+      const videoUrls = await uploadImages("reels");
+
+      if (!videoUrls.length) {
+        throw new Error("Failed to upload video");
+      }
+
+      const { error } = await supabase.from("reels").insert({
+        user_id: user.id,
+        video_url: videoUrls[0],
+        caption: caption || null,
+        tags: tags ? tags.split(",").map((t) => t.trim()) : [],
+      });
+
+      if (error) throw error;
+
+      toast({ title: "Reel posted! 🎬", description: "Your reel is now live" });
+      navigate("/reels");
+    } catch (error) {
+      console.error("Error:", error);
+      toast({ title: "Error", description: "Failed to create reel", variant: "destructive" });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleSubmit = () => {
     if (selected === "plant") {
       handleSubmitPlant();
     } else if (selected === "post") {
       handleSubmitPost();
-    } else {
-      toast({ title: "Coming soon!", description: "Reels feature is coming soon" });
+    } else if (selected === "story") {
+      handleSubmitStory();
+    } else if (selected === "reel") {
+      handleSubmitReel();
     }
   };
 
   const handleBack = () => {
     if (selected) {
       setSelected(null);
-      setImageFile(null);
-      setImagePreview(null);
+      setImageFiles([]);
+      setImagePreviews([]);
+      setPlantName("");
+      setPlantDescription("");
+      setPlantHeight("");
+      setPlantSize("");
+      setPlantTags("");
+      setCaption("");
+      setTags("");
     } else {
       navigate(-1);
     }
@@ -200,6 +298,8 @@ const Create = () => {
               ? "Add Plant"
               : selected === "post"
               ? "Create Post"
+              : selected === "story"
+              ? "Add Story"
               : "Create Reel"
             : "Create"}
         </h1>
@@ -215,9 +315,7 @@ const Create = () => {
             exit={{ opacity: 0, y: -20 }}
             className="px-4 py-6 space-y-4"
           >
-            <p className="text-muted-foreground text-center mb-6">
-              What would you like to create?
-            </p>
+            <p className="text-muted-foreground text-center mb-6">What would you like to create?</p>
             {createOptions.map((option, index) => (
               <motion.button
                 key={option.id}
@@ -246,25 +344,35 @@ const Create = () => {
             exit={{ opacity: 0, x: -20 }}
             className="px-4 py-6 space-y-4"
           >
-            {/* Image upload */}
-            <label className="block">
-              <input
-                type="file"
-                accept="image/*"
-                onChange={handleImageSelect}
-                className="hidden"
-              />
-              <div className="aspect-square bg-secondary rounded-2xl border-2 border-dashed border-border flex flex-col items-center justify-center gap-3 cursor-pointer overflow-hidden">
-                {imagePreview ? (
-                  <img src={imagePreview} alt="Preview" className="w-full h-full object-cover" />
-                ) : (
-                  <>
-                    <Camera className="w-12 h-12 text-muted-foreground" />
-                    <p className="text-muted-foreground text-sm">Tap to add plant photo</p>
-                  </>
+            {/* Multiple image upload */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-foreground">Photos (up to 10)</label>
+              <div className="flex gap-2 flex-wrap">
+                {imagePreviews.map((preview, index) => (
+                  <div key={index} className="relative w-20 h-20 rounded-xl overflow-hidden">
+                    <img src={preview} alt="" className="w-full h-full object-cover" />
+                    <button
+                      onClick={() => removeImage(index)}
+                      className="absolute top-1 right-1 w-5 h-5 bg-destructive rounded-full flex items-center justify-center"
+                    >
+                      <X className="w-3 h-3 text-white" />
+                    </button>
+                  </div>
+                ))}
+                {imageFiles.length < 10 && (
+                  <label className="w-20 h-20 rounded-xl border-2 border-dashed border-border flex items-center justify-center cursor-pointer hover:bg-secondary transition-colors">
+                    <input
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      onChange={handleImageSelect}
+                      className="hidden"
+                    />
+                    <Plus className="w-6 h-6 text-muted-foreground" />
+                  </label>
                 )}
               </div>
-            </label>
+            </div>
 
             <Input
               placeholder="Plant Name *"
@@ -294,13 +402,6 @@ const Create = () => {
               />
             </div>
             <Input
-              placeholder="Price (optional)"
-              value={plantPrice}
-              onChange={(e) => setPlantPrice(e.target.value)}
-              className="h-12 rounded-xl"
-              type="number"
-            />
-            <Input
               placeholder="Tags (comma separated)"
               value={plantTags}
               onChange={(e) => setPlantTags(e.target.value)}
@@ -317,54 +418,99 @@ const Create = () => {
           </motion.div>
         ) : (
           <motion.div
-            key="post-form"
+            key="media-form"
             initial={{ opacity: 0, x: 20 }}
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: -20 }}
             className="px-4 py-6 space-y-4"
           >
             {/* Media upload */}
-            <label className="block">
-              <input
-                type="file"
-                accept={selected === "post" ? "image/*" : "video/*"}
-                onChange={handleImageSelect}
-                className="hidden"
-              />
-              <div className="aspect-video bg-secondary rounded-2xl border-2 border-dashed border-border flex flex-col items-center justify-center gap-3 cursor-pointer overflow-hidden">
-                {imagePreview ? (
-                  <img src={imagePreview} alt="Preview" className="w-full h-full object-cover" />
-                ) : (
-                  <>
-                    <Upload className="w-12 h-12 text-muted-foreground" />
-                    <p className="text-muted-foreground text-sm">
-                      Tap to add {selected === "post" ? "image" : "video"}
-                    </p>
-                  </>
-                )}
-              </div>
-            </label>
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-foreground">
+                {selected === "reel" ? "Video" : selected === "post" ? "Photos (up to 10)" : "Photo"}
+              </label>
+              {selected === "post" ? (
+                <div className="flex gap-2 flex-wrap">
+                  {imagePreviews.map((preview, index) => (
+                    <div key={index} className="relative w-20 h-20 rounded-xl overflow-hidden">
+                      <img src={preview} alt="" className="w-full h-full object-cover" />
+                      <button
+                        onClick={() => removeImage(index)}
+                        className="absolute top-1 right-1 w-5 h-5 bg-destructive rounded-full flex items-center justify-center"
+                      >
+                        <X className="w-3 h-3 text-white" />
+                      </button>
+                    </div>
+                  ))}
+                  {imageFiles.length < 10 && (
+                    <label className="w-20 h-20 rounded-xl border-2 border-dashed border-border flex items-center justify-center cursor-pointer hover:bg-secondary transition-colors">
+                      <input
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        onChange={handleImageSelect}
+                        className="hidden"
+                      />
+                      <Plus className="w-6 h-6 text-muted-foreground" />
+                    </label>
+                  )}
+                </div>
+              ) : (
+                <label className="block">
+                  <input
+                    type="file"
+                    accept={selected === "reel" ? "video/*" : "image/*"}
+                    onChange={handleImageSelect}
+                    className="hidden"
+                  />
+                  <div className="aspect-video bg-secondary rounded-2xl border-2 border-dashed border-border flex flex-col items-center justify-center gap-3 cursor-pointer overflow-hidden">
+                    {imagePreviews[0] ? (
+                      selected === "reel" ? (
+                        <video src={imagePreviews[0]} className="w-full h-full object-cover" />
+                      ) : (
+                        <img src={imagePreviews[0]} alt="Preview" className="w-full h-full object-cover" />
+                      )
+                    ) : (
+                      <>
+                        <Upload className="w-12 h-12 text-muted-foreground" />
+                        <p className="text-muted-foreground text-sm">
+                          Tap to add {selected === "reel" ? "video" : "image"}
+                        </p>
+                      </>
+                    )}
+                  </div>
+                </label>
+              )}
+            </div>
 
-            <Textarea
-              placeholder="Write a caption..."
-              value={caption}
-              onChange={(e) => setCaption(e.target.value)}
-              className="rounded-xl"
-              rows={4}
-            />
-            <Input
-              placeholder="Tags (comma separated)"
-              value={tags}
-              onChange={(e) => setTags(e.target.value)}
-              className="h-12 rounded-xl"
-            />
+            {selected !== "story" && (
+              <>
+                <Textarea
+                  placeholder="Write a caption..."
+                  value={caption}
+                  onChange={(e) => setCaption(e.target.value)}
+                  className="rounded-xl"
+                  rows={4}
+                />
+                <Input
+                  placeholder="Tags (comma separated)"
+                  value={tags}
+                  onChange={(e) => setTags(e.target.value)}
+                  className="h-12 rounded-xl"
+                />
+              </>
+            )}
 
             <Button
               onClick={handleSubmit}
-              disabled={isLoading || (selected === "post" && !imageFile)}
+              disabled={isLoading || !imageFiles.length}
               className="w-full h-12 rounded-xl bg-primary hover:bg-primary/90 mt-4"
             >
-              {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : `Publish ${selected === "post" ? "Post" : "Reel"}`}
+              {isLoading ? (
+                <Loader2 className="w-5 h-5 animate-spin" />
+              ) : (
+                `Publish ${selected === "post" ? "Post" : selected === "story" ? "Story" : "Reel"}`
+              )}
             </Button>
           </motion.div>
         )}

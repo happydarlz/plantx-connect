@@ -5,12 +5,11 @@ interface PlantCardProps {
   image: string;
   height: string;
   size: string;
-  price?: number;
   nurseryName: string;
   onClick?: () => void;
 }
 
-const PlantCard = ({ name, image, height, size, price, nurseryName, onClick }: PlantCardProps) => {
+const PlantCard = ({ name, image, height, size, nurseryName, onClick }: PlantCardProps) => {
   return (
     <motion.button
       onClick={onClick}
@@ -19,11 +18,6 @@ const PlantCard = ({ name, image, height, size, price, nurseryName, onClick }: P
     >
       <div className="aspect-square bg-secondary relative">
         <img src={image} alt={name} className="w-full h-full object-cover" />
-        {price && (
-          <div className="absolute top-2 right-2 bg-primary px-2 py-1 rounded-full">
-            <span className="text-xs font-semibold text-primary-foreground">₹{price}</span>
-          </div>
-        )}
       </div>
       <div className="p-3">
         <h3 className="font-semibold text-sm text-foreground truncate">{name}</h3>
