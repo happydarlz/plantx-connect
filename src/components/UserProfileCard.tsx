@@ -1,10 +1,11 @@
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { MapPin, Link as LinkIcon, Grid3X3, Leaf, MessageCircle } from "lucide-react";
+import { MapPin, Link as LinkIcon, Grid3X3, Leaf, MessageCircle, ExternalLink, Navigation } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { useNavigate } from "react-router-dom";
 import BottomNav from "@/components/BottomNav";
 
 interface UserProfileCardProps {
@@ -18,6 +19,8 @@ interface ProfileData {
   bio: string | null;
   profile_image: string | null;
   address: string | null;
+  latitude: number | null;
+  longitude: number | null;
   profile_links: { title: string; url: string }[];
 }
 
@@ -31,6 +34,7 @@ interface Stats {
 const UserProfileCard = ({ userId, username }: UserProfileCardProps) => {
   const { user } = useAuth();
   const { toast } = useToast();
+  const navigate = useNavigate();
   const [profile, setProfile] = useState<ProfileData | null>(null);
   const [stats, setStats] = useState<Stats>({ postsCount: 0, plantsCount: 0, followers: 0, following: 0 });
   const [posts, setPosts] = useState<{ id: string; image_url: string }[]>([]);
@@ -46,7 +50,6 @@ const UserProfileCard = ({ userId, username }: UserProfileCardProps) => {
 
   const fetchProfile = async () => {
     try {
-      // Fetch profile
       const { data: profileData } = await supabase
         .from("profiles")
         .select("*")
@@ -65,11 +68,12 @@ const UserProfileCard = ({ userId, username }: UserProfileCardProps) => {
           bio: profileData.bio,
           profile_image: profileData.profile_image,
           address: profileData.address,
+          latitude: profileData.latitude,
+          longitude: profileData.longitude,
           profile_links: parsedLinks,
         });
       }
 
-      // Fetch posts
       const { data: postsData, count: postsCount } = await supabase
         .from("posts")
         .select("id, image_url", { count: "exact" })
@@ -78,7 +82,6 @@ const UserProfileCard = ({ userId, username }: UserProfileCardProps) => {
 
       setPosts(postsData || []);
 
-      // Fetch plants
       const { data: plantsData, count: plantsCount } = await supabase
         .from("plants")
         .select("id, image_url, name", { count: "exact" })
@@ -87,13 +90,11 @@ const UserProfileCard = ({ userId, username }: UserProfileCardProps) => {
 
       setPlants(plantsData || []);
 
-      // Fetch followers count
       const { count: followersCount } = await supabase
         .from("follows")
         .select("id", { count: "exact" })
         .eq("following_id", userId);
 
-      // Fetch following count
       const { count: followingCount } = await supabase
         .from("follows")
         .select("id", { count: "exact" })
@@ -133,31 +134,75 @@ const UserProfileCard = ({ userId, username }: UserProfileCardProps) => {
 
     try {
       if (isFollowing) {
-        await supabase
-          .from("follows")
-          .delete()
-          .eq("follower_id", user.id)
-          .eq("following_id", userId);
+        await supabase.from("follows").delete().eq("follower_id", user.id).eq("following_id", userId);
         setIsFollowing(false);
-        setStats(prev => ({ ...prev, followers: prev.followers - 1 }));
+        setStats((prev) => ({ ...prev, followers: prev.followers - 1 }));
       } else {
-        await supabase.from("follows").insert({
-          follower_id: user.id,
-          following_id: userId,
-        });
-        
-        // Create notification
+        await supabase.from("follows").insert({ follower_id: user.id, following_id: userId });
         await supabase.from("notifications").insert({
           user_id: userId,
           type: "follow",
           from_user_id: user.id,
         });
-        
         setIsFollowing(true);
-        setStats(prev => ({ ...prev, followers: prev.followers + 1 }));
+        setStats((prev) => ({ ...prev, followers: prev.followers + 1 }));
       }
     } catch (error: any) {
       toast({ title: "Error", description: error.message, variant: "destructive" });
+    }
+  };
+
+  const handleMessage = async () => {
+    if (!user) {
+      toast({ title: "Please sign in to message", variant: "destructive" });
+      return;
+    }
+
+    // Check if chat exists
+    const { data: existingParticipants } = await supabase
+      .from("chat_participants")
+      .select("chat_id")
+      .eq("user_id", user.id);
+
+    if (existingParticipants) {
+      for (const p of existingParticipants) {
+        const { data: otherParticipant } = await supabase
+          .from("chat_participants")
+          .select("user_id")
+          .eq("chat_id", p.chat_id)
+          .eq("user_id", userId)
+          .maybeSingle();
+
+        if (otherParticipant) {
+          navigate("/chat");
+          return;
+        }
+      }
+    }
+
+    // Create new chat
+    const { data: newChat, error: chatError } = await supabase.from("chats").insert({}).select().single();
+
+    if (chatError) {
+      toast({ title: "Error creating chat", variant: "destructive" });
+      return;
+    }
+
+    await supabase.from("chat_participants").insert([
+      { chat_id: newChat.id, user_id: user.id },
+      { chat_id: newChat.id, user_id: userId },
+    ]);
+
+    navigate("/chat");
+  };
+
+  const openInGoogleMaps = () => {
+    if (profile?.latitude && profile?.longitude) {
+      const url = `https://www.google.com/maps?q=${profile.latitude},${profile.longitude}`;
+      window.open(url, "_blank");
+    } else if (profile?.address) {
+      const url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(profile.address)}`;
+      window.open(url, "_blank");
     }
   };
 
@@ -177,7 +222,7 @@ const UserProfileCard = ({ userId, username }: UserProfileCardProps) => {
     <div className="min-h-screen bg-background pb-20">
       {/* Header */}
       <header className="sticky top-0 bg-background z-40 px-4 py-3 border-b border-border">
-        <h1 className="text-lg font-semibold text-foreground text-center">{profile.username}</h1>
+        <h1 className="text-lg font-semibold text-foreground text-center">@{profile.username}</h1>
       </header>
 
       {/* Profile Info */}
@@ -210,23 +255,29 @@ const UserProfileCard = ({ userId, username }: UserProfileCardProps) => {
         <div className="mt-4">
           <h2 className="font-semibold text-foreground">{profile.nursery_name}</h2>
           {profile.bio && <p className="text-sm text-foreground mt-1">{profile.bio}</p>}
-          {profile.address && (
-            <div className="flex items-center gap-1 text-sm text-primary mt-2">
-              <MapPin className="w-4 h-4" />
-              {profile.address}
-            </div>
-          )}
           
+          {/* Location with Google Maps Link */}
+          {(profile.address || (profile.latitude && profile.longitude)) && (
+            <button
+              onClick={openInGoogleMaps}
+              className="flex items-center gap-1.5 text-sm text-primary mt-2 hover:underline"
+            >
+              <MapPin className="w-4 h-4" />
+              <span className="truncate max-w-[250px]">{profile.address || "View Location"}</span>
+              <ExternalLink className="w-3 h-3" />
+            </button>
+          )}
+
           {/* Profile Links */}
           {profile.profile_links && profile.profile_links.length > 0 && (
-            <div className="flex flex-wrap gap-2 mt-2">
+            <div className="flex flex-wrap gap-2 mt-3">
               {profile.profile_links.map((link, index) => (
                 <a
                   key={index}
-                  href={link.url}
+                  href={link.url.startsWith("http") ? link.url : `https://${link.url}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex items-center gap-1 text-sm text-primary hover:underline"
+                  className="flex items-center gap-1 text-sm text-primary hover:underline bg-primary/10 px-2 py-1 rounded-full"
                 >
                   <LinkIcon className="w-3 h-3" />
                   {link.title}
@@ -246,7 +297,7 @@ const UserProfileCard = ({ userId, username }: UserProfileCardProps) => {
             >
               {isFollowing ? "Following" : "Follow"}
             </Button>
-            <Button variant="outline" className="flex-1 h-10 rounded-xl">
+            <Button onClick={handleMessage} variant="outline" className="flex-1 h-10 rounded-xl">
               <MessageCircle className="w-4 h-4 mr-2" /> Message
             </Button>
           </div>
@@ -288,26 +339,24 @@ const UserProfileCard = ({ userId, username }: UserProfileCardProps) => {
             ))}
           </div>
         )
+      ) : plants.length === 0 ? (
+        <div className="text-center py-12">
+          <p className="text-muted-foreground">No plants listed</p>
+        </div>
       ) : (
-        plants.length === 0 ? (
-          <div className="text-center py-12">
-            <p className="text-muted-foreground">No plants listed</p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-3 gap-0.5">
-            {plants.map((plant) => (
-              <div key={plant.id} className="aspect-square bg-secondary">
-                {plant.image_url ? (
-                  <img src={plant.image_url} alt={plant.name} className="w-full h-full object-cover" />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center">
-                    <Leaf className="w-8 h-8 text-muted-foreground" />
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        )
+        <div className="grid grid-cols-3 gap-0.5">
+          {plants.map((plant) => (
+            <div key={plant.id} className="aspect-square bg-secondary">
+              {plant.image_url ? (
+                <img src={plant.image_url} alt={plant.name} className="w-full h-full object-cover" />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center">
+                  <Leaf className="w-8 h-8 text-muted-foreground" />
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
       )}
 
       <BottomNav />
