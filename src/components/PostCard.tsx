@@ -1,8 +1,14 @@
-import { Heart, MessageCircle, Send, Bookmark, MoreHorizontal } from "lucide-react";
+import { Heart, MessageCircle, Send, Bookmark, MoreHorizontal, UserPlus } from "lucide-react";
 import { motion } from "framer-motion";
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { useAuth } from "@/contexts/AuthContext";
+import { supabase } from "@/integrations/supabase/client";
+import { useToast } from "@/hooks/use-toast";
 
 interface PostCardProps {
+  postId: string;
+  userId: string;
   nurseryName: string;
   username: string;
   nurseryImage: string;
@@ -15,6 +21,8 @@ interface PostCardProps {
 }
 
 const PostCard = ({
+  postId,
+  userId,
   nurseryName,
   username,
   nurseryImage,
@@ -25,31 +33,157 @@ const PostCard = ({
   comments,
   timeAgo,
 }: PostCardProps) => {
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const navigate = useNavigate();
   const [isLiked, setIsLiked] = useState(false);
   const [isSaved, setIsSaved] = useState(false);
   const [likeCount, setLikeCount] = useState(likes);
+  const [isFollowing, setIsFollowing] = useState(false);
 
-  const handleLike = () => {
-    setIsLiked(!isLiked);
-    setLikeCount(isLiked ? likeCount - 1 : likeCount + 1);
+  const handleLike = async () => {
+    if (!user) {
+      toast({ title: "Please sign in to like posts", variant: "destructive" });
+      return;
+    }
+
+    try {
+      if (isLiked) {
+        await supabase
+          .from("post_likes")
+          .delete()
+          .eq("post_id", postId)
+          .eq("user_id", user.id);
+        setLikeCount(likeCount - 1);
+      } else {
+        await supabase.from("post_likes").insert({
+          post_id: postId,
+          user_id: user.id,
+        });
+
+        // Create notification
+        if (userId !== user.id) {
+          await supabase.from("notifications").insert({
+            user_id: userId,
+            type: "like",
+            from_user_id: user.id,
+            post_id: postId,
+          });
+        }
+
+        setLikeCount(likeCount + 1);
+      }
+      setIsLiked(!isLiked);
+    } catch (error) {
+      console.error("Like error:", error);
+    }
+  };
+
+  const handleSave = async () => {
+    if (!user) {
+      toast({ title: "Please sign in to save posts", variant: "destructive" });
+      return;
+    }
+
+    try {
+      if (isSaved) {
+        await supabase
+          .from("post_saves")
+          .delete()
+          .eq("post_id", postId)
+          .eq("user_id", user.id);
+      } else {
+        await supabase.from("post_saves").insert({
+          post_id: postId,
+          user_id: user.id,
+        });
+      }
+      setIsSaved(!isSaved);
+      toast({ title: isSaved ? "Removed from saved" : "Saved!" });
+    } catch (error) {
+      console.error("Save error:", error);
+    }
+  };
+
+  const handleFollow = async () => {
+    if (!user) {
+      toast({ title: "Please sign in to follow", variant: "destructive" });
+      return;
+    }
+
+    if (userId === user.id) return;
+
+    try {
+      if (isFollowing) {
+        await supabase
+          .from("follows")
+          .delete()
+          .eq("follower_id", user.id)
+          .eq("following_id", userId);
+      } else {
+        await supabase.from("follows").insert({
+          follower_id: user.id,
+          following_id: userId,
+        });
+
+        await supabase.from("notifications").insert({
+          user_id: userId,
+          type: "follow",
+          from_user_id: user.id,
+        });
+      }
+      setIsFollowing(!isFollowing);
+      toast({ title: isFollowing ? "Unfollowed" : "Following!" });
+    } catch (error) {
+      console.error("Follow error:", error);
+    }
+  };
+
+  const handleShare = async () => {
+    const url = `${window.location.origin}/user/${username}`;
+    try {
+      await navigator.share({ title: `Post by ${nurseryName}`, url });
+    } catch {
+      await navigator.clipboard.writeText(url);
+      toast({ title: "Link copied!" });
+    }
+  };
+
+  const goToProfile = () => {
+    navigate(`/user/${username}`);
   };
 
   return (
     <article className="bg-card rounded-xl plantx-shadow overflow-hidden">
       {/* Header */}
       <div className="flex items-center justify-between p-3">
-        <div className="flex items-center gap-3">
+        <button onClick={goToProfile} className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-full overflow-hidden border-2 border-plantx-soft">
             <img src={nurseryImage} alt={nurseryName} className="w-full h-full object-cover" />
           </div>
-          <div>
+          <div className="text-left">
             <h3 className="font-semibold text-sm text-foreground">{nurseryName}</h3>
             <p className="text-xs text-muted-foreground">@{username}</p>
           </div>
-        </div>
-        <button className="p-2 hover:bg-secondary rounded-full transition-colors">
-          <MoreHorizontal className="w-5 h-5 text-muted-foreground" />
         </button>
+        <div className="flex items-center gap-1">
+          {user && userId !== user.id && (
+            <motion.button
+              onClick={handleFollow}
+              whileTap={{ scale: 0.9 }}
+              className={`px-3 py-1.5 rounded-full text-xs font-medium ${
+                isFollowing
+                  ? "bg-secondary text-muted-foreground"
+                  : "bg-primary text-primary-foreground"
+              }`}
+            >
+              {isFollowing ? "Following" : "Follow"}
+            </motion.button>
+          )}
+          <button className="p-2 hover:bg-secondary rounded-full transition-colors">
+            <MoreHorizontal className="w-5 h-5 text-muted-foreground" />
+          </button>
+        </div>
       </div>
 
       {/* Image */}
@@ -75,12 +209,12 @@ const PostCard = ({
             <button className="p-1">
               <MessageCircle className="w-6 h-6 text-foreground" />
             </button>
-            <button className="p-1">
+            <button onClick={handleShare} className="p-1">
               <Send className="w-6 h-6 text-foreground" />
             </button>
           </div>
           <motion.button
-            onClick={() => setIsSaved(!isSaved)}
+            onClick={handleSave}
             whileTap={{ scale: 0.8 }}
             className="p-1"
           >

@@ -1,8 +1,10 @@
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { Settings, Share2, MapPin, Grid3X3, Leaf, Film, Bookmark, LogOut } from "lucide-react";
+import { Settings, Share2, MapPin, Grid3X3, Leaf, Film, Bookmark, Link as LinkIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import BottomNav from "@/components/BottomNav";
+import EditProfileSheet from "@/components/EditProfileSheet";
+import SettingsSheet from "@/components/SettingsSheet";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { useNavigate } from "react-router-dom";
@@ -39,7 +41,7 @@ const formatNumber = (num: number) => {
 };
 
 const Profile = () => {
-  const { profile, user, signOut } = useAuth();
+  const { profile, user } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState("posts");
@@ -47,6 +49,8 @@ const Profile = () => {
   const [posts, setPosts] = useState<Post[]>([]);
   const [plants, setPlants] = useState<Plant[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [editProfileOpen, setEditProfileOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   useEffect(() => {
     if (!user) {
@@ -60,7 +64,6 @@ const Profile = () => {
     if (!user) return;
 
     try {
-      // Fetch posts
       const { data: postsData, count: postsCount } = await supabase
         .from("posts")
         .select("id, image_url", { count: "exact" })
@@ -69,7 +72,6 @@ const Profile = () => {
 
       setPosts(postsData || []);
 
-      // Fetch plants
       const { data: plantsData } = await supabase
         .from("plants")
         .select("id, image_url, name")
@@ -78,13 +80,11 @@ const Profile = () => {
 
       setPlants(plantsData || []);
 
-      // Fetch followers count
       const { count: followersCount } = await supabase
         .from("follows")
         .select("id", { count: "exact" })
         .eq("following_id", user.id);
 
-      // Fetch following count
       const { count: followingCount } = await supabase
         .from("follows")
         .select("id", { count: "exact" })
@@ -102,13 +102,17 @@ const Profile = () => {
     }
   };
 
-  const handleSignOut = async () => {
-    await signOut();
-    toast({
-      title: "Signed out",
-      description: "See you next time! 🌱",
-    });
-    navigate("/auth");
+  const handleShareProfile = async () => {
+    const url = `${window.location.origin}/user/${profile?.username}`;
+    try {
+      await navigator.share({
+        title: `${profile?.nursery_name} on PlantX`,
+        url,
+      });
+    } catch {
+      await navigator.clipboard.writeText(url);
+      toast({ title: "Profile link copied!", description: url });
+    }
   };
 
   const renderContent = () => {
@@ -189,6 +193,17 @@ const Profile = () => {
     );
   };
 
+  // Get profile links
+  const profileLinks = (() => {
+    try {
+      const links = (profile as any)?.profile_links;
+      if (Array.isArray(links)) return links;
+      return [];
+    } catch {
+      return [];
+    }
+  })();
+
   if (!profile) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
@@ -207,17 +222,17 @@ const Profile = () => {
       <header className="sticky top-0 bg-background z-40 px-4 py-3 border-b border-border flex items-center justify-between">
         <h1 className="text-lg font-semibold text-foreground">{profile.username}</h1>
         <div className="flex items-center gap-2">
-          <button className="p-2 hover:bg-secondary rounded-full transition-colors">
-            <Share2 className="w-5 h-5 text-foreground" />
-          </button>
-          <button className="p-2 hover:bg-secondary rounded-full transition-colors">
-            <Settings className="w-5 h-5 text-foreground" />
-          </button>
           <button 
-            onClick={handleSignOut}
+            onClick={handleShareProfile}
             className="p-2 hover:bg-secondary rounded-full transition-colors"
           >
-            <LogOut className="w-5 h-5 text-muted-foreground" />
+            <Share2 className="w-5 h-5 text-foreground" />
+          </button>
+          <button 
+            onClick={() => setSettingsOpen(true)}
+            className="p-2 hover:bg-secondary rounded-full transition-colors"
+          >
+            <Settings className="w-5 h-5 text-foreground" />
           </button>
         </div>
       </header>
@@ -225,7 +240,6 @@ const Profile = () => {
       {/* Profile Info */}
       <section className="px-4 py-6">
         <div className="flex items-start gap-4">
-          {/* Avatar */}
           <motion.div
             className="story-ring rounded-full"
             initial={{ scale: 0.9, opacity: 0 }}
@@ -240,7 +254,6 @@ const Profile = () => {
             </div>
           </motion.div>
 
-          {/* Stats */}
           <div className="flex-1 grid grid-cols-3 gap-2 text-center">
             <div>
               <p className="font-semibold text-foreground">{stats.postsCount}</p>
@@ -267,14 +280,40 @@ const Profile = () => {
               {profile.address}
             </button>
           )}
+          
+          {/* Profile Links */}
+          {profileLinks.length > 0 && (
+            <div className="flex flex-wrap gap-2 mt-2">
+              {profileLinks.map((link: { title: string; url: string }, index: number) => (
+                <a
+                  key={index}
+                  href={link.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1 text-sm text-primary hover:underline"
+                >
+                  <LinkIcon className="w-3 h-3" />
+                  {link.title}
+                </a>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Actions */}
         <div className="flex gap-2 mt-4">
-          <Button variant="outline" className="flex-1 h-10 rounded-xl border-border">
+          <Button 
+            variant="outline" 
+            className="flex-1 h-10 rounded-xl border-border"
+            onClick={() => setEditProfileOpen(true)}
+          >
             Edit Profile
           </Button>
-          <Button variant="outline" className="flex-1 h-10 rounded-xl border-border">
+          <Button 
+            variant="outline" 
+            className="flex-1 h-10 rounded-xl border-border"
+            onClick={handleShareProfile}
+          >
             Share Profile
           </Button>
         </div>
@@ -302,6 +341,8 @@ const Profile = () => {
       {/* Content */}
       {renderContent()}
 
+      <EditProfileSheet open={editProfileOpen} onOpenChange={setEditProfileOpen} />
+      <SettingsSheet open={settingsOpen} onOpenChange={setSettingsOpen} />
       <BottomNav />
     </div>
   );

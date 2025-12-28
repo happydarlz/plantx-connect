@@ -152,6 +152,39 @@ export type Database = {
           },
         ]
       }
+      notifications: {
+        Row: {
+          created_at: string
+          from_user_id: string
+          id: string
+          is_read: boolean | null
+          message_text: string | null
+          post_id: string | null
+          type: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          from_user_id: string
+          id?: string
+          is_read?: boolean | null
+          message_text?: string | null
+          post_id?: string | null
+          type: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          from_user_id?: string
+          id?: string
+          is_read?: boolean | null
+          message_text?: string | null
+          post_id?: string | null
+          type?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       plants: {
         Row: {
           created_at: string
@@ -159,6 +192,7 @@ export type Database = {
           height: string | null
           id: string
           image_url: string | null
+          image_urls: string[] | null
           name: string
           price: number | null
           size: string | null
@@ -171,6 +205,7 @@ export type Database = {
           height?: string | null
           id?: string
           image_url?: string | null
+          image_urls?: string[] | null
           name: string
           price?: number | null
           size?: string | null
@@ -183,6 +218,7 @@ export type Database = {
           height?: string | null
           id?: string
           image_url?: string | null
+          image_urls?: string[] | null
           name?: string
           price?: number | null
           size?: string | null
@@ -255,6 +291,7 @@ export type Database = {
           created_at: string
           id: string
           image_url: string
+          image_urls: string[] | null
           tags: string[] | null
           user_id: string
         }
@@ -263,6 +300,7 @@ export type Database = {
           created_at?: string
           id?: string
           image_url: string
+          image_urls?: string[] | null
           tags?: string[] | null
           user_id: string
         }
@@ -271,6 +309,7 @@ export type Database = {
           created_at?: string
           id?: string
           image_url?: string
+          image_urls?: string[] | null
           tags?: string[] | null
           user_id?: string
         }
@@ -286,6 +325,7 @@ export type Database = {
           longitude: number | null
           nursery_name: string
           profile_image: string | null
+          profile_links: Json | null
           updated_at: string
           user_id: string
           username: string
@@ -299,6 +339,7 @@ export type Database = {
           longitude?: number | null
           nursery_name: string
           profile_image?: string | null
+          profile_links?: Json | null
           updated_at?: string
           user_id: string
           username: string
@@ -312,6 +353,7 @@ export type Database = {
           longitude?: number | null
           nursery_name?: string
           profile_image?: string | null
+          profile_links?: Json | null
           updated_at?: string
           user_id?: string
           username?: string
@@ -403,7 +445,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      delete_expired_stories: { Args: never; Returns: undefined }
     }
     Enums: {
       [_ in never]: never
