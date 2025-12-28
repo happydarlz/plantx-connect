@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { X, Type, Music, Smile, Wand2, Check, Move, Play, Pause, Search, Scissors, Loader2 } from "lucide-react";
+import { X, Type, Music, Smile, Wand2, Check, Move, Play, Pause, Search, Scissors, Loader2, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -148,6 +148,11 @@ const MediaEditor = ({ open, onOpenChange, mediaUrl, mediaType, onSave }: MediaE
   const [trimEnd, setTrimEnd] = useState([100]);
   const [videoDuration, setVideoDuration] = useState(0);
   const videoRef = useRef<HTMLVideoElement>(null);
+  
+  // Custom music upload state
+  const [customTracks, setCustomTracks] = useState<MusicTrack[]>([]);
+  const [isUploadingAudio, setIsUploadingAudio] = useState(false);
+  const audioInputRef = useRef<HTMLInputElement>(null);
 
   // Cleanup audio on unmount
   useEffect(() => {
@@ -255,6 +260,83 @@ const MediaEditor = ({ open, onOpenChange, mediaUrl, mediaType, onSave }: MediaE
       
       audioRef.current = audio;
       setPlayingTrackId(track.id);
+    }
+  };
+
+  const handleAudioUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Validate file type
+    if (!file.type.startsWith("audio/")) {
+      toast({ title: "Please select an audio file", variant: "destructive" });
+      return;
+    }
+
+    // Validate file size (max 20MB)
+    if (file.size > 20 * 1024 * 1024) {
+      toast({ title: "Audio file must be less than 20MB", variant: "destructive" });
+      return;
+    }
+
+    setIsUploadingAudio(true);
+
+    try {
+      // Create object URL for local playback
+      const audioUrl = URL.createObjectURL(file);
+      
+      // Get audio duration
+      const audio = new Audio(audioUrl);
+      await new Promise<void>((resolve) => {
+        audio.onloadedmetadata = () => resolve();
+        audio.onerror = () => resolve();
+      });
+      
+      const duration = audio.duration;
+      const mins = Math.floor(duration / 60);
+      const secs = Math.floor(duration % 60);
+      const durationStr = `${mins}:${secs.toString().padStart(2, "0")}`;
+
+      // Extract file name without extension
+      const fileName = file.name.replace(/\.[^/.]+$/, "");
+
+      const newTrack: MusicTrack = {
+        id: `custom-${Date.now()}`,
+        name: fileName,
+        artist: "My Music",
+        duration: durationStr,
+        url: audioUrl,
+        previewUrl: audioUrl,
+      };
+
+      setCustomTracks((prev) => [newTrack, ...prev]);
+      setSelectedMusic(newTrack);
+      toast({ title: "Music added successfully!" });
+    } catch (error) {
+      console.error("Error uploading audio:", error);
+      toast({ title: "Failed to add music", variant: "destructive" });
+    } finally {
+      setIsUploadingAudio(false);
+      // Reset input
+      if (audioInputRef.current) {
+        audioInputRef.current.value = "";
+      }
+    }
+  };
+
+  const handleRemoveCustomTrack = (trackId: string) => {
+    const track = customTracks.find((t) => t.id === trackId);
+    if (track) {
+      URL.revokeObjectURL(track.previewUrl);
+    }
+    setCustomTracks((prev) => prev.filter((t) => t.id !== trackId));
+    if (selectedMusic?.id === trackId) {
+      if (playingTrackId === trackId && audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current = null;
+        setPlayingTrackId(null);
+      }
+      setSelectedMusic(null);
     }
   };
 
@@ -614,6 +696,29 @@ const MediaEditor = ({ open, onOpenChange, mediaUrl, mediaType, onSave }: MediaE
               {/* Music Tab */}
               <TabsContent value="music" className="mt-0">
                 <div className="space-y-2">
+                  {/* Upload Custom Music Button */}
+                  <input
+                    ref={audioInputRef}
+                    type="file"
+                    accept="audio/*"
+                    className="hidden"
+                    onChange={handleAudioUpload}
+                  />
+                  <button
+                    onClick={() => audioInputRef.current?.click()}
+                    disabled={isUploadingAudio}
+                    className="w-full flex items-center justify-center gap-2 p-3 rounded-xl border-2 border-dashed border-muted-foreground/30 hover:border-primary/50 transition-colors text-muted-foreground hover:text-foreground"
+                  >
+                    {isUploadingAudio ? (
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                    ) : (
+                      <Upload className="w-5 h-5" />
+                    )}
+                    <span className="text-sm font-medium">
+                      {isUploadingAudio ? "Adding..." : "Upload Your Music"}
+                    </span>
+                  </button>
+
                   {selectedMusic && (
                     <div className="flex items-center justify-between p-3 bg-primary/10 rounded-xl mb-3">
                       <div className="flex items-center gap-3">
@@ -644,7 +749,53 @@ const MediaEditor = ({ open, onOpenChange, mediaUrl, mediaType, onSave }: MediaE
                       </button>
                     </div>
                   )}
+
+                  {/* Custom Uploaded Tracks */}
+                  {customTracks.length > 0 && (
+                    <div className="space-y-2">
+                      <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Your Music</p>
+                      {customTracks.map((track) => (
+                        <div
+                          key={track.id}
+                          className={`flex items-center gap-3 p-3 rounded-xl transition-all ${
+                            selectedMusic?.id === track.id 
+                              ? "bg-primary/10 border border-primary" 
+                              : "bg-secondary hover:bg-secondary/80"
+                          }`}
+                        >
+                          <button 
+                            onClick={() => handlePlayPreview(track)}
+                            className="w-10 h-10 bg-muted rounded-lg flex items-center justify-center flex-shrink-0"
+                          >
+                            {playingTrackId === track.id ? (
+                              <Pause className="w-5 h-5 text-foreground" />
+                            ) : (
+                              <Play className="w-5 h-5 text-foreground" />
+                            )}
+                          </button>
+                          
+                          <button 
+                            onClick={() => setSelectedMusic(track)}
+                            className="flex-1 text-left"
+                          >
+                            <p className="font-medium text-sm">{track.name}</p>
+                            <p className="text-xs text-muted-foreground">{track.artist}</p>
+                          </button>
+                          
+                          <span className="text-xs text-muted-foreground mr-2">{track.duration}</span>
+                          <button 
+                            onClick={() => handleRemoveCustomTrack(track.id)}
+                            className="p-1 hover:bg-destructive/20 rounded-full"
+                          >
+                            <X className="w-4 h-4 text-muted-foreground" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                   
+                  {/* Library Tracks */}
+                  <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide pt-2">Music Library</p>
                   {musicTracks.map((track) => (
                     <div
                       key={track.id}
