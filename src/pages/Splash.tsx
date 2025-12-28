@@ -2,19 +2,29 @@ import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import PlantXLogo from "@/components/PlantXLogo";
+import { useAuth } from "@/contexts/AuthContext";
 
 const Splash = () => {
   const navigate = useNavigate();
+  const { user, profile, isLoading } = useAuth();
 
   useEffect(() => {
-    // Simulate checking auth state and redirect after animation
+    if (isLoading) return;
+
     const timer = setTimeout(() => {
-      // For now, always go to auth. In real app, check if logged in
-      navigate("/auth");
-    }, 2500);
+      if (user) {
+        if (profile) {
+          navigate("/home");
+        } else {
+          navigate("/onboarding");
+        }
+      } else {
+        navigate("/auth");
+      }
+    }, 2000);
 
     return () => clearTimeout(timer);
-  }, [navigate]);
+  }, [user, profile, isLoading, navigate]);
 
   return (
     <div className="min-h-screen bg-background flex flex-col items-center justify-center relative overflow-hidden">
