@@ -47,6 +47,15 @@ interface SavedPost {
   } | null;
 }
 
+interface SavedReel {
+  id: string;
+  reel: {
+    id: string;
+    video_url: string;
+    caption: string | null;
+  } | null;
+}
+
 const formatNumber = (num: number) => {
   if (num >= 1000000) return (num / 1000000).toFixed(1) + "M";
   if (num >= 1000) return (num / 1000).toFixed(1) + "K";
@@ -63,7 +72,8 @@ const Profile = () => {
   const [posts, setPosts] = useState<Post[]>([]);
   const [plants, setPlants] = useState<Plant[]>([]);
   const [reels, setReels] = useState<Reel[]>([]);
-  const [savedPosts, setSavedPosts] = useState<SavedPost[]>([]);
+const [savedPosts, setSavedPosts] = useState<SavedPost[]>([]);
+  const [savedReels, setSavedReels] = useState<SavedReel[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [editProfileOpen, setEditProfileOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -80,11 +90,12 @@ const Profile = () => {
     if (!user) return;
 
     try {
-      const [postsResult, plantsResult, reelsResult, savedResult, followersResult, followingResult] = await Promise.all([
+const [postsResult, plantsResult, reelsResult, savedPostsResult, savedReelsResult, followersResult, followingResult] = await Promise.all([
         supabase.from("posts").select("id, image_url", { count: "exact" }).eq("user_id", user.id).order("created_at", { ascending: false }),
         supabase.from("plants").select("id, image_url, name").eq("user_id", user.id).order("created_at", { ascending: false }),
         supabase.from("reels").select("id, video_url, caption").eq("user_id", user.id).order("created_at", { ascending: false }),
         supabase.from("post_saves").select("id, post_id").eq("user_id", user.id).order("created_at", { ascending: false }),
+        supabase.from("reel_saves").select("id, reel_id").eq("user_id", user.id).order("created_at", { ascending: false }),
         supabase.from("follows").select("id", { count: "exact" }).eq("following_id", user.id),
         supabase.from("follows").select("id", { count: "exact" }).eq("follower_id", user.id),
       ]);
@@ -93,19 +104,34 @@ const Profile = () => {
       setPlants(plantsResult.data || []);
       setReels(reelsResult.data || []);
 
-      // Fetch saved posts details
-      if (savedResult.data && savedResult.data.length > 0) {
-        const postIds = savedResult.data.map((s) => s.post_id);
+// Fetch saved posts details
+      if (savedPostsResult.data && savedPostsResult.data.length > 0) {
+        const postIds = savedPostsResult.data.map((s) => s.post_id);
         const { data: savedPostsData } = await supabase
           .from("posts")
           .select("id, image_url")
           .in("id", postIds);
         
-        const mappedSaved = savedResult.data.map((s) => ({
+        const mappedSaved = savedPostsResult.data.map((s) => ({
           id: s.id,
           post: savedPostsData?.find((p) => p.id === s.post_id) || null,
         }));
         setSavedPosts(mappedSaved);
+      }
+
+      // Fetch saved reels details
+      if (savedReelsResult.data && savedReelsResult.data.length > 0) {
+        const reelIds = savedReelsResult.data.map((s) => s.reel_id);
+        const { data: savedReelsData } = await supabase
+          .from("reels")
+          .select("id, video_url, caption")
+          .in("id", reelIds);
+        
+        const mappedSavedReels = savedReelsResult.data.map((s) => ({
+          id: s.id,
+          reel: savedReelsData?.find((r) => r.id === s.reel_id) || null,
+        }));
+        setSavedReels(mappedSavedReels);
       }
 
       setStats({
@@ -251,10 +277,25 @@ const Profile = () => {
           )}
 
           {savedFilter === "reels" && (
-            <div className="text-center py-12">
-              <Film className="w-12 h-12 text-muted-foreground mx-auto mb-2" />
-              <p className="text-muted-foreground">Saved reels coming soon</p>
-            </div>
+            <>
+              {savedReels.filter((s) => s.reel).length === 0 ? (
+                <div className="text-center py-12">
+                  <Film className="w-12 h-12 text-muted-foreground mx-auto mb-2" />
+                  <p className="text-muted-foreground">No saved reels</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-3 gap-0.5">
+                  {savedReels.filter((s) => s.reel).map((saved) => (
+                    <button key={saved.id} className="aspect-[9/16] bg-secondary relative overflow-hidden">
+                      <video src={saved.reel!.video_url} className="w-full h-full object-cover" muted />
+                      <div className="absolute inset-0 flex items-center justify-center bg-black/20">
+                        <Film className="w-6 h-6 text-white" />
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </>
           )}
         </div>
       );

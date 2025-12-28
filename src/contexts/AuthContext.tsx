@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
 import { User, Session } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
+import { requestNotificationPermission } from "@/lib/notifications";
 
 interface Profile {
   id: string;
@@ -54,6 +55,17 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
+  // Request notification permission on first login
+  const checkAndRequestNotifications = () => {
+    const hasRequestedNotifications = localStorage.getItem("notification_permission_requested");
+    if (!hasRequestedNotifications) {
+      requestNotificationPermission().then((granted) => {
+        localStorage.setItem("notification_permission_requested", "true");
+        console.log("Notification permission:", granted ? "granted" : "denied");
+      });
+    }
+  };
+
   useEffect(() => {
     // Set up auth state listener FIRST
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
@@ -66,6 +78,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           setTimeout(() => {
             fetchProfile(session.user.id).then(setProfile);
           }, 0);
+          
+          // Request notification permission on sign in
+          if (event === "SIGNED_IN") {
+            setTimeout(() => {
+              checkAndRequestNotifications();
+            }, 1000);
+          }
         } else {
           setProfile(null);
         }
@@ -79,6 +98,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       
       if (session?.user) {
         fetchProfile(session.user.id).then(setProfile);
+        // Also check notifications for existing sessions
+        setTimeout(() => {
+          checkAndRequestNotifications();
+        }, 1000);
       }
       setIsLoading(false);
     });
