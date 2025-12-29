@@ -58,6 +58,7 @@ const CreateSheet = ({ open, onOpenChange }: CreateSheetProps) => {
   const [plantSize, setPlantSize] = useState("");
   const [plantTags, setPlantTags] = useState("");
 
+  const [postName, setPostName] = useState("");
   const [caption, setCaption] = useState("");
   const [tags, setTags] = useState("");
 
@@ -75,6 +76,7 @@ const CreateSheet = ({ open, onOpenChange }: CreateSheetProps) => {
     setPlantHeight("");
     setPlantSize("");
     setPlantTags("");
+    setPostName("");
     setCaption("");
     setTags("");
     setEditedMediaData({});
@@ -178,9 +180,9 @@ const CreateSheet = ({ open, onOpenChange }: CreateSheetProps) => {
 
       if (!imageUrls.length) throw new Error("Failed to upload images");
 
-      // Include filter info in caption if applied
+      // Include post name and filter info in caption if applied
       const editData = editedMediaData[0];
-      let finalCaption = caption || "";
+      let finalCaption = postName ? `${postName}${caption ? ` - ${caption}` : ""}` : caption || "";
       if (editData?.filter && editData.filter !== "Normal") {
         finalCaption = finalCaption ? `${finalCaption} • Filter: ${editData.filter}` : `Filter: ${editData.filter}`;
       }
@@ -453,6 +455,9 @@ const CreateSheet = ({ open, onOpenChange }: CreateSheetProps) => {
                     </Button>
                   )}
                   
+                  {selected === "post" && (
+                    <Input placeholder="Post Name" value={postName} onChange={(e) => setPostName(e.target.value)} className="h-11 rounded-xl" />
+                  )}
                   <Textarea placeholder="Write a caption..." value={caption} onChange={(e) => setCaption(e.target.value)} className="rounded-xl" rows={3} />
                   <Input placeholder="Tags (comma separated)" value={tags} onChange={(e) => setTags(e.target.value)} className="h-11 rounded-xl" />
                   <Button onClick={handleSubmit} disabled={!imageFiles.length || isLoading} className="w-full h-11 rounded-xl">
