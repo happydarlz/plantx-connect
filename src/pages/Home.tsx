@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
-import { Bell, MessageCircle } from "lucide-react";
+import { Bell, MessageCircle, Leaf } from "lucide-react";
 import { motion } from "framer-motion";
 import PlantXLogo from "@/components/PlantXLogo";
 import StoryCircle from "@/components/StoryCircle";
 import StoryViewer from "@/components/StoryViewer";
 import PostCard from "@/components/PostCard";
+import PlantFeedCard from "@/components/PlantFeedCard";
 import BottomNav from "@/components/BottomNav";
 import ChatList from "@/components/ChatList";
 import NotificationsSheet from "@/components/NotificationsSheet";
@@ -26,6 +27,26 @@ interface Post {
   } | null;
   likes_count: number;
   comments_count: number;
+  type: 'post';
+}
+
+interface Plant {
+  id: string;
+  user_id: string;
+  image_url: string | null;
+  name: string;
+  description: string | null;
+  price: number | null;
+  size: string | null;
+  height: string | null;
+  tags: string[];
+  created_at: string;
+  profiles: {
+    nursery_name: string;
+    username: string;
+    profile_image: string | null;
+  } | null;
+  type: 'plant';
 }
 
 interface Story {
@@ -37,10 +58,12 @@ interface Story {
   hasStory?: boolean;
 }
 
+type FeedItem = Post | Plant;
+
 const Home = () => {
   const { profile, user } = useAuth();
   const navigate = useNavigate();
-  const [posts, setPosts] = useState<Post[]>([]);
+  const [feedItems, setFeedItems] = useState<FeedItem[]>([]);
   const [stories, setStories] = useState<Story[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
@@ -56,13 +79,18 @@ const Home = () => {
       return;
     }
 
-    fetchPosts();
+    fetchFeed();
     fetchStories();
     fetchUnreadCount();
 
     const postChannel = supabase
       .channel('home-posts')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'posts' }, () => fetchPosts())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'posts' }, () => fetchFeed())
+      .subscribe();
+
+    const plantChannel = supabase
+      .channel('home-plants')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'plants' }, () => fetchFeed())
       .subscribe();
 
     const notifChannel = supabase
@@ -72,6 +100,7 @@ const Home = () => {
 
     return () => {
       supabase.removeChannel(postChannel);
+      supabase.removeChannel(plantChannel);
       supabase.removeChannel(notifChannel);
     };
   }, [user, navigate]);
@@ -86,18 +115,25 @@ const Home = () => {
     setUnreadCount(count || 0);
   };
 
-  const fetchPosts = async () => {
+  const fetchFeed = async () => {
     try {
-      const { data, error } = await supabase
+      // Fetch posts
+      const { data: postsData } = await supabase
         .from("posts")
         .select("*")
         .order("created_at", { ascending: false })
         .limit(20);
 
-      if (error) throw error;
+      // Fetch plants
+      const { data: plantsData } = await supabase
+        .from("plants")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(20);
 
-      const postsWithCounts = await Promise.all(
-        (data || []).map(async (post) => {
+      // Get counts and profiles for posts
+      const postsWithData = await Promise.all(
+        (postsData || []).map(async (post) => {
           const [likesResult, commentsResult, profileResult] = await Promise.all([
             supabase.from("post_likes").select("id", { count: "exact" }).eq("post_id", post.id),
             supabase.from("comments").select("id", { count: "exact" }).eq("post_id", post.id),
@@ -109,13 +145,36 @@ const Home = () => {
             likes_count: likesResult.count || 0,
             comments_count: commentsResult.count || 0,
             profiles: profileResult.data,
+            type: 'post' as const,
           };
         })
       );
 
-      setPosts(postsWithCounts);
+      // Get profiles for plants
+      const plantsWithData = await Promise.all(
+        (plantsData || []).map(async (plant) => {
+          const { data: profileData } = await supabase
+            .from("profiles")
+            .select("nursery_name, username, profile_image")
+            .eq("user_id", plant.user_id)
+            .maybeSingle();
+
+          return {
+            ...plant,
+            profiles: profileData,
+            type: 'plant' as const,
+          };
+        })
+      );
+
+      // Combine and sort by created_at
+      const combined = [...postsWithData, ...plantsWithData].sort(
+        (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      );
+
+      setFeedItems(combined);
     } catch (error) {
-      console.error("Error fetching posts:", error);
+      console.error("Error fetching feed:", error);
     } finally {
       setIsLoading(false);
     }
@@ -242,31 +301,50 @@ const Home = () => {
               transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
             />
           </div>
-        ) : posts.length > 0 ? (
-          posts.map((post, index) => (
+        ) : feedItems.length > 0 ? (
+          feedItems.map((item, index) => (
             <motion.div
-              key={post.id}
+              key={item.id}
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: index * 0.1 }}
+              transition={{ delay: index * 0.05 }}
             >
-              <PostCard
-                postId={post.id}
-                userId={post.user_id}
-                nurseryName={post.profiles?.nursery_name || "Unknown Nursery"}
-                username={post.profiles?.username || "unknown"}
-                nurseryImage={post.profiles?.profile_image || "https://images.unsplash.com/photo-1416879595882-3373a0480b5b?w=150&h=150&fit=crop"}
-                postImage={post.image_url}
-                caption={post.caption || ""}
-                tags={post.tags || []}
-                likes={post.likes_count}
-                comments={post.comments_count}
-                timeAgo={formatTimeAgo(post.created_at)}
-              />
+              {item.type === 'post' ? (
+                <PostCard
+                  postId={item.id}
+                  userId={item.user_id}
+                  nurseryName={item.profiles?.nursery_name || "Unknown Nursery"}
+                  username={item.profiles?.username || "unknown"}
+                  nurseryImage={item.profiles?.profile_image || "https://images.unsplash.com/photo-1416879595882-3373a0480b5b?w=150&h=150&fit=crop"}
+                  postImage={item.image_url}
+                  caption={item.caption || ""}
+                  tags={item.tags || []}
+                  likes={item.likes_count}
+                  comments={item.comments_count}
+                  timeAgo={formatTimeAgo(item.created_at)}
+                />
+              ) : (
+                <PlantFeedCard
+                  plantId={item.id}
+                  userId={item.user_id}
+                  nurseryName={item.profiles?.nursery_name || "Unknown Nursery"}
+                  username={item.profiles?.username || "unknown"}
+                  nurseryImage={item.profiles?.profile_image || "https://images.unsplash.com/photo-1416879595882-3373a0480b5b?w=150&h=150&fit=crop"}
+                  plantImage={item.image_url || "https://images.unsplash.com/photo-1459411552884-841db9b3cc2a?w=800"}
+                  name={item.name}
+                  description={item.description}
+                  price={item.price}
+                  size={item.size}
+                  height={item.height}
+                  tags={item.tags || []}
+                  timeAgo={formatTimeAgo(item.created_at)}
+                />
+              )}
             </motion.div>
           ))
         ) : (
           <div className="text-center py-12">
+            <Leaf className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
             <p className="text-muted-foreground">No posts yet.</p>
             <p className="text-sm text-muted-foreground mt-1">Be the first to share!</p>
           </div>
