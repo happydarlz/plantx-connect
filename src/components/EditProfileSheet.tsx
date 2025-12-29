@@ -109,11 +109,32 @@ const EditProfileSheet = ({ open, onOpenChange }: EditProfileSheetProps) => {
 
     setIsGettingLocation(true);
 
-    // Use simple getCurrentPosition with short timeout for faster response
-    navigator.geolocation.getCurrentPosition(
-      async (position) => {
-        const { latitude: lat, longitude: lng, accuracy } = position.coords;
-        console.log("Location obtained:", { lat, lng, accuracy });
+    // Use watchPosition for more accurate GPS reading
+    let watchId: number;
+    let bestPosition: GeolocationPosition | null = null;
+    let attempts = 0;
+    const maxAttempts = 5;
+
+    const processPosition = async (position: GeolocationPosition) => {
+      attempts++;
+      
+      // Keep the best (most accurate) position
+      if (!bestPosition || position.coords.accuracy < bestPosition.coords.accuracy) {
+        bestPosition = position;
+      }
+
+      console.log(`Location attempt ${attempts}:`, {
+        lat: position.coords.latitude,
+        lng: position.coords.longitude,
+        accuracy: position.coords.accuracy
+      });
+
+      // Use position if accuracy is good enough (< 100m) or we've tried enough times
+      if (position.coords.accuracy < 100 || attempts >= maxAttempts) {
+        navigator.geolocation.clearWatch(watchId);
+        
+        const finalPosition = bestPosition!;
+        const { latitude: lat, longitude: lng, accuracy } = finalPosition.coords;
         
         setLatitude(lat);
         setLongitude(lng);
@@ -126,8 +147,13 @@ const EditProfileSheet = ({ open, onOpenChange }: EditProfileSheetProps) => {
           description: `Accuracy: ${Math.round(accuracy)}m`,
         });
         setIsGettingLocation(false);
-      },
+      }
+    };
+
+    watchId = navigator.geolocation.watchPosition(
+      processPosition,
       (error) => {
+        navigator.geolocation.clearWatch(watchId);
         console.error("Geolocation error:", error);
         setIsGettingLocation(false);
         
@@ -148,10 +174,18 @@ const EditProfileSheet = ({ open, onOpenChange }: EditProfileSheetProps) => {
       },
       {
         enableHighAccuracy: true,
-        timeout: 10000,
-        maximumAge: 30000,
+        timeout: 15000,
+        maximumAge: 0, // Don't use cached position
       }
     );
+
+    // Timeout fallback - use best position we have after 10 seconds
+    setTimeout(() => {
+      if (isGettingLocation && bestPosition) {
+        navigator.geolocation.clearWatch(watchId);
+        processPosition(bestPosition);
+      }
+    }, 10000);
   };
 
   const addLink = () => {
