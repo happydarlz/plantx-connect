@@ -1,13 +1,12 @@
 import { useState, useEffect, useRef } from "react";
 import { motion } from "framer-motion";
-import { Search, Send, Image, ArrowLeft, Lock, Paperclip, FileIcon, X, Trash2 } from "lucide-react";
+import { Search, Send, ArrowLeft, Paperclip, Trash2, MessageCircle } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import BottomNav from "@/components/BottomNav";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { useNavigate } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
-import { encryptMessage, decryptMessage, isEncrypted } from "@/lib/encryption";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -49,7 +48,6 @@ const Chat = () => {
   const [message, setMessage] = useState("");
   const [chats, setChats] = useState<ChatPreview[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
-  const [decryptedMessages, setDecryptedMessages] = useState<Map<string, string>>(new Map());
   const [isLoading, setIsLoading] = useState(true);
   const [isSending, setIsSending] = useState(false);
   const [chatToDelete, setChatToDelete] = useState<ChatPreview | null>(null);
@@ -63,13 +61,11 @@ const Chat = () => {
     }
     fetchChats();
 
-    // Real-time subscription for new messages
     const channel = supabase
-      .channel('all-chats')
+      .channel('chat-messages')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, (payload) => {
         if (selectedChat && payload.new.chat_id === selectedChat) {
           setMessages((prev) => [...prev, payload.new as Message]);
-          decryptMessageContent(payload.new as Message);
           scrollToBottom();
         }
         fetchChats();
@@ -94,23 +90,23 @@ const Chat = () => {
     }, 100);
   };
 
-  const decryptMessageContent = async (msg: Message) => {
-    if (msg.content && isEncrypted(msg.content)) {
-      const decrypted = await decryptMessage(msg.content);
-      setDecryptedMessages((prev) => new Map(prev).set(msg.id, decrypted));
-    }
-  };
-
   const fetchChats = async () => {
     if (!user) return;
 
     try {
-      const { data: participantData } = await supabase
+      const { data: participantData, error: participantError } = await supabase
         .from("chat_participants")
         .select("chat_id")
         .eq("user_id", user.id);
 
+      if (participantError) {
+        console.error("Error fetching participants:", participantError);
+        setIsLoading(false);
+        return;
+      }
+
       if (!participantData || participantData.length === 0) {
+        setChats([]);
         setIsLoading(false);
         return;
       }
@@ -153,7 +149,7 @@ const Chat = () => {
           if (lastMessage?.image_url) {
             lastMsgPreview = "📷 Photo";
           } else if (lastMessage?.content) {
-            lastMsgPreview = isEncrypted(lastMessage.content) ? "🔒 Encrypted message" : lastMessage.content;
+            lastMsgPreview = lastMessage.content;
           }
 
           chatPreviews.push({
@@ -188,12 +184,6 @@ const Chat = () => {
 
     if (!error && data) {
       setMessages(data);
-      // Decrypt all messages
-      for (const msg of data) {
-        if (msg.content && isEncrypted(msg.content)) {
-          decryptMessageContent(msg);
-        }
-      }
       scrollToBottom();
     }
   };
@@ -213,18 +203,16 @@ const Chat = () => {
 
     setIsSending(true);
     try {
-      // Encrypt message before sending
-      const encryptedContent = await encryptMessage(message.trim());
-
       const { error } = await supabase.from("messages").insert({
         chat_id: selectedChat,
         sender_id: user.id,
-        content: encryptedContent,
+        content: message.trim(),
       });
 
       if (error) throw error;
       setMessage("");
     } catch (error) {
+      console.error("Send message error:", error);
       toast({ title: "Failed to send message", variant: "destructive" });
     } finally {
       setIsSending(false);
@@ -254,8 +242,9 @@ const Chat = () => {
       });
 
       if (error) throw error;
-      toast({ title: "File sent! 📎" });
+      toast({ title: "File sent!" });
     } catch (error) {
+      console.error("Send file error:", error);
       toast({ title: "Failed to send file", variant: "destructive" });
     } finally {
       setIsSending(false);
@@ -277,18 +266,10 @@ const Chat = () => {
     return new Date(date).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   };
 
-  const getMessageContent = (msg: Message) => {
-    if (!msg.content) return null;
-    return decryptedMessages.get(msg.id) || msg.content;
-  };
-
   const deleteChat = async (chatId: string) => {
     try {
-      // Delete messages first
       await supabase.from("messages").delete().eq("chat_id", chatId);
-      // Delete participants
       await supabase.from("chat_participants").delete().eq("chat_id", chatId);
-      // Delete chat
       await supabase.from("chats").delete().eq("id", chatId);
       
       setChats((prev) => prev.filter((c) => c.id !== chatId));
@@ -309,7 +290,6 @@ const Chat = () => {
   if (selectedChat && selectedChatData) {
     return (
       <div className="min-h-screen bg-background flex flex-col">
-        {/* Chat header */}
         <header className="sticky top-0 bg-background/95 backdrop-blur-sm z-40 px-4 py-3 border-b border-border flex items-center gap-3">
           <button
             onClick={() => {
@@ -328,23 +308,17 @@ const Chat = () => {
           </div>
           <div className="flex-1" onClick={() => navigate(`/user/${selectedChatData.username}`)}>
             <h2 className="font-semibold text-foreground">{selectedChatData.name}</h2>
-            <div className="flex items-center gap-1">
-              <Lock className="w-3 h-3 text-primary" />
-              <span className="text-xs text-primary">End-to-end encrypted</span>
-            </div>
+            <p className="text-xs text-muted-foreground">@{selectedChatData.username}</p>
           </div>
         </header>
 
-        {/* Messages */}
         <div className="flex-1 p-4 space-y-3 overflow-y-auto">
-          {/* Encryption notice */}
-          <div className="flex justify-center">
-            <div className="px-3 py-1.5 bg-primary/10 rounded-full flex items-center gap-1.5">
-              <Lock className="w-3 h-3 text-primary" />
-              <span className="text-xs text-primary">Messages are end-to-end encrypted</span>
+          {messages.length === 0 && (
+            <div className="text-center py-8 text-muted-foreground">
+              <MessageCircle className="w-12 h-12 mx-auto mb-2 opacity-50" />
+              <p>No messages yet. Say hello!</p>
             </div>
-          </div>
-
+          )}
           {messages.map((msg) => (
             <div key={msg.id} className={`flex ${msg.sender_id === user?.id ? "justify-end" : "justify-start"}`}>
               <div
@@ -357,7 +331,7 @@ const Chat = () => {
                 {msg.image_url && (
                   <img src={msg.image_url} alt="" className="rounded-lg max-w-full mb-2" />
                 )}
-                {msg.content && <p className="text-sm leading-relaxed">{getMessageContent(msg)}</p>}
+                {msg.content && <p className="text-sm leading-relaxed">{msg.content}</p>}
                 <p
                   className={`text-[10px] mt-1 ${
                     msg.sender_id === user?.id ? "text-primary-foreground/70" : "text-muted-foreground"
@@ -371,7 +345,6 @@ const Chat = () => {
           <div ref={messagesEndRef} />
         </div>
 
-        {/* Input */}
         <div className="sticky bottom-0 bg-background border-t border-border p-4 flex items-center gap-3">
           <input
             ref={fileInputRef}
@@ -407,17 +380,8 @@ const Chat = () => {
 
   return (
     <div className="min-h-screen bg-background pb-20">
-      {/* Header */}
       <header className="sticky top-0 bg-background z-40 px-4 pt-4 pb-3 border-b border-border">
-        <div className="flex items-center justify-between mb-4">
-          <h1 className="text-2xl font-bold text-foreground">Messages</h1>
-          <div className="flex items-center gap-1 px-2 py-1 bg-primary/10 rounded-full">
-            <Lock className="w-3 h-3 text-primary" />
-            <span className="text-xs text-primary font-medium">Encrypted</span>
-          </div>
-        </div>
-
-        {/* Search */}
+        <h1 className="text-2xl font-bold text-foreground mb-4">Messages</h1>
         <div className="relative">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
           <Input
@@ -430,7 +394,6 @@ const Chat = () => {
         </div>
       </header>
 
-      {/* Chat list */}
       <div className="px-4">
         {isLoading ? (
           <div className="flex justify-center py-12">
@@ -442,7 +405,7 @@ const Chat = () => {
           </div>
         ) : filteredChats.length === 0 ? (
           <div className="text-center py-12">
-            <Lock className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+            <MessageCircle className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
             <p className="text-muted-foreground">No conversations yet</p>
             <p className="text-sm text-muted-foreground mt-1">Start chatting with nurseries!</p>
           </div>
@@ -493,13 +456,12 @@ const Chat = () => {
         )}
       </div>
 
-      {/* Delete confirmation dialog */}
       <AlertDialog open={!!chatToDelete} onOpenChange={() => setChatToDelete(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete conversation?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will permanently delete your conversation with {chatToDelete?.name}. This action cannot be undone.
+              This will permanently delete all messages with {chatToDelete?.name}.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
