@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { MapPin, Link as LinkIcon, Grid3X3, Leaf, MessageCircle, ExternalLink, Navigation } from "lucide-react";
+import { MapPin, Link as LinkIcon, Grid3X3, Leaf, MessageCircle, ExternalLink, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
@@ -152,82 +152,82 @@ const UserProfileCard = ({ userId, username }: UserProfileCardProps) => {
     }
   };
 
+  const [isStartingChat, setIsStartingChat] = useState(false);
+
   const handleMessage = async () => {
     if (!user) {
       toast({ title: "Please sign in to message", variant: "destructive" });
       return;
     }
 
+    if (isStartingChat) return;
+    setIsStartingChat(true);
+
     try {
-      // Check if chat already exists between these two users
-      const { data: myChats } = await supabase
+      // First check if a chat already exists between these users
+      const { data: myParticipations } = await supabase
         .from("chat_participants")
         .select("chat_id")
         .eq("user_id", user.id);
 
-      if (myChats && myChats.length > 0) {
-        // Check each of my chats to see if the other user is a participant
-        for (const chat of myChats) {
-          const { data: otherUser } = await supabase
-            .from("chat_participants")
-            .select("user_id")
-            .eq("chat_id", chat.chat_id)
-            .eq("user_id", userId)
-            .maybeSingle();
+      if (myParticipations && myParticipations.length > 0) {
+        const chatIds = myParticipations.map(p => p.chat_id);
+        
+        // Check if the other user is in any of these chats
+        const { data: existingChat } = await supabase
+          .from("chat_participants")
+          .select("chat_id")
+          .eq("user_id", userId)
+          .in("chat_id", chatIds)
+          .limit(1)
+          .maybeSingle();
 
-          if (otherUser) {
-            // Chat already exists, navigate to it
-            navigate("/chat");
-            return;
-          }
+        if (existingChat) {
+          navigate("/chat");
+          setIsStartingChat(false);
+          return;
         }
       }
 
-      // No existing chat found, create a new one
-      // Step 1: Create the chat
+      // Create new chat
       const { data: newChat, error: chatError } = await supabase
         .from("chats")
         .insert({})
         .select("id")
         .single();
 
-      if (chatError || !newChat) {
-        console.error("Failed to create chat:", chatError);
-        toast({ 
-          title: "Error", 
-          description: "Could not start conversation. Please try again.", 
-          variant: "destructive" 
-        });
-        return;
+      if (chatError) {
+        throw chatError;
       }
 
-      // Step 2: Add both participants
-      const { error: participantError } = await supabase
+      // Add participants one by one for better error handling
+      const { error: p1Error } = await supabase
         .from("chat_participants")
-        .insert([
-          { chat_id: newChat.id, user_id: user.id },
-          { chat_id: newChat.id, user_id: userId },
-        ]);
+        .insert({ chat_id: newChat.id, user_id: user.id });
 
-      if (participantError) {
-        console.error("Failed to add participants:", participantError);
-        toast({ 
-          title: "Error", 
-          description: "Could not set up conversation. Please try again.", 
-          variant: "destructive" 
-        });
-        return;
+      if (p1Error) {
+        throw p1Error;
       }
 
-      toast({ title: "Chat created!" });
+      const { error: p2Error } = await supabase
+        .from("chat_participants")
+        .insert({ chat_id: newChat.id, user_id: userId });
+
+      if (p2Error) {
+        throw p2Error;
+      }
+
+      toast({ title: "Chat started!" });
       navigate("/chat");
-    } catch (error) {
-      console.error("Chat error:", error);
+    } catch (error: any) {
+      console.error("Chat creation error:", error);
       toast({ 
         title: "Error", 
-        description: "Something went wrong. Please try again.", 
+        description: error.message || "Could not start conversation. Please try again.", 
         variant: "destructive" 
       });
+    } finally {
+      setIsStartingChat(false);
     }
   };
 
@@ -332,8 +332,14 @@ const UserProfileCard = ({ userId, username }: UserProfileCardProps) => {
             >
               {isFollowing ? "Following" : "Follow"}
             </Button>
-            <Button onClick={handleMessage} variant="outline" className="flex-1 h-10 rounded-xl">
-              <MessageCircle className="w-4 h-4 mr-2" /> Message
+            <Button onClick={handleMessage} variant="outline" className="flex-1 h-10 rounded-xl" disabled={isStartingChat}>
+              {isStartingChat ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <>
+                  <MessageCircle className="w-4 h-4 mr-2" /> Message
+                </>
+              )}
             </Button>
           </div>
         )}
