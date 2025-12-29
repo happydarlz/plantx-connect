@@ -24,7 +24,6 @@ const ChatList = () => {
     if (user) {
       fetchChats();
       
-      // Subscribe to new messages
       const channel = supabase
         .channel('home-messages')
         .on(
@@ -50,7 +49,6 @@ const ChatList = () => {
     if (!user) return;
 
     try {
-      // Get user's chat participants
       const { data: participantData } = await supabase
         .from("chat_participants")
         .select("chat_id")
@@ -58,60 +56,60 @@ const ChatList = () => {
 
       if (!participantData || participantData.length === 0) return;
 
-      const chatIds = participantData.map(p => p.chat_id);
-
-      // For each chat, get the other participant and last message
       const chatPreviews: ChatPreview[] = [];
 
-      for (const chatId of chatIds) {
-        // Get other participant
+      for (const participant of participantData) {
         const { data: otherParticipant } = await supabase
           .from("chat_participants")
           .select("user_id")
-          .eq("chat_id", chatId)
+          .eq("chat_id", participant.chat_id)
           .neq("user_id", user.id)
           .maybeSingle();
 
         if (!otherParticipant) continue;
 
-        // Get their profile
         const { data: profileData } = await supabase
           .from("profiles")
           .select("username, nursery_name, profile_image")
           .eq("user_id", otherParticipant.user_id)
           .maybeSingle();
 
-        // Get last message
         const { data: lastMessage } = await supabase
           .from("messages")
-          .select("content, created_at, sender_id, read_at")
-          .eq("chat_id", chatId)
+          .select("content, created_at, image_url")
+          .eq("chat_id", participant.chat_id)
           .order("created_at", { ascending: false })
           .limit(1)
           .maybeSingle();
 
-        // Count unread messages
         const { count: unreadCount } = await supabase
           .from("messages")
           .select("id", { count: "exact" })
-          .eq("chat_id", chatId)
+          .eq("chat_id", participant.chat_id)
           .neq("sender_id", user.id)
           .is("read_at", null);
 
         if (profileData) {
+          let lastMsgPreview = "Start a conversation";
+          if (lastMessage?.image_url) {
+            lastMsgPreview = "📷 Photo";
+          } else if (lastMessage?.content) {
+            lastMsgPreview = lastMessage.content;
+          }
+
           chatPreviews.push({
-            id: chatId,
+            id: participant.chat_id,
             name: profileData.nursery_name,
             username: profileData.username,
             avatar: profileData.profile_image || "https://images.unsplash.com/photo-1466781783364-36c955e42a7f?w=150&h=150&fit=crop",
-            lastMessage: lastMessage?.content || "Start a conversation",
+            lastMessage: lastMsgPreview,
             time: lastMessage ? formatTime(lastMessage.created_at) : "",
             unread: unreadCount || 0,
           });
         }
       }
 
-      setChats(chatPreviews.slice(0, 5)); // Show max 5 chats
+      setChats(chatPreviews.slice(0, 5));
     } catch (error) {
       console.error("Error fetching chats:", error);
     }
@@ -151,7 +149,7 @@ const ChatList = () => {
             transition={{ delay: index * 0.05 }}
           >
             <div className="relative">
-              <div className="w-14 h-14 rounded-full overflow-hidden border-2 border-plantx-soft">
+              <div className="w-14 h-14 rounded-full overflow-hidden border-2 border-primary/20">
                 <img src={chat.avatar} alt={chat.name} className="w-full h-full object-cover" />
               </div>
               {chat.unread > 0 && (

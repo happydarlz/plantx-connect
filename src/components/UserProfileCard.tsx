@@ -164,28 +164,25 @@ const UserProfileCard = ({ userId, username }: UserProfileCardProps) => {
     setIsStartingChat(true);
 
     try {
-      // First check if a chat already exists between these users
-      const { data: myParticipations } = await supabase
+      // Check if chat already exists
+      const { data: myChats } = await supabase
         .from("chat_participants")
         .select("chat_id")
         .eq("user_id", user.id);
 
-      if (myParticipations && myParticipations.length > 0) {
-        const chatIds = myParticipations.map(p => p.chat_id);
-        
-        // Check if the other user is in any of these chats
-        const { data: existingChat } = await supabase
-          .from("chat_participants")
-          .select("chat_id")
-          .eq("user_id", userId)
-          .in("chat_id", chatIds)
-          .limit(1)
-          .maybeSingle();
+      if (myChats && myChats.length > 0) {
+        for (const chat of myChats) {
+          const { data: otherUser } = await supabase
+            .from("chat_participants")
+            .select("user_id")
+            .eq("chat_id", chat.chat_id)
+            .eq("user_id", userId)
+            .maybeSingle();
 
-        if (existingChat) {
-          navigate("/chat");
-          setIsStartingChat(false);
-          return;
+          if (otherUser) {
+            navigate("/chat");
+            return;
+          }
         }
       }
 
@@ -196,34 +193,28 @@ const UserProfileCard = ({ userId, username }: UserProfileCardProps) => {
         .select("id")
         .single();
 
-      if (chatError) {
-        throw chatError;
-      }
+      if (chatError) throw chatError;
 
-      // Add participants one by one for better error handling
+      // Add both participants
       const { error: p1Error } = await supabase
         .from("chat_participants")
         .insert({ chat_id: newChat.id, user_id: user.id });
 
-      if (p1Error) {
-        throw p1Error;
-      }
+      if (p1Error) throw p1Error;
 
       const { error: p2Error } = await supabase
         .from("chat_participants")
         .insert({ chat_id: newChat.id, user_id: userId });
 
-      if (p2Error) {
-        throw p2Error;
-      }
+      if (p2Error) throw p2Error;
 
       toast({ title: "Chat started!" });
       navigate("/chat");
     } catch (error: any) {
-      console.error("Chat creation error:", error);
+      console.error("Chat error:", error);
       toast({ 
-        title: "Error", 
-        description: error.message || "Could not start conversation. Please try again.", 
+        title: "Could not start chat", 
+        description: error.message, 
         variant: "destructive" 
       });
     } finally {
