@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Heart, MessageCircle, Share2, Volume2, VolumeX, Play, Bookmark } from "lucide-react";
+import { Heart, MessageCircle, Share2, Volume2, VolumeX, Play, Bookmark, RefreshCw } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import BottomNav from "@/components/BottomNav";
 import { useAuth } from "@/contexts/AuthContext";
@@ -29,7 +29,6 @@ const ReelItem = ({
   likedReels,
   savedReels,
   user,
-  profile,
   onLike,
   onSave,
   onShare,
@@ -44,7 +43,6 @@ const ReelItem = ({
   likedReels: Set<string>;
   savedReels: Set<string>;
   user: any;
-  profile: any;
   onLike: (reel: Reel) => void;
   onSave: (reel: Reel) => void;
   onShare: (reel: Reel) => void;
@@ -54,16 +52,18 @@ const ReelItem = ({
   onGoToProfile: (username: string) => void;
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const [isPlaying, setIsPlaying] = useState(true);
+  const [isPlaying, setIsPlaying] = useState(false);
 
   useEffect(() => {
     if (videoRef.current) {
       if (isActive) {
-        videoRef.current.play().catch(() => {});
-        setIsPlaying(true);
+        videoRef.current.currentTime = 0;
+        const playPromise = videoRef.current.play();
+        if (playPromise !== undefined) {
+          playPromise.then(() => setIsPlaying(true)).catch(() => setIsPlaying(false));
+        }
       } else {
         videoRef.current.pause();
-        videoRef.current.currentTime = 0;
         setIsPlaying(false);
       }
     }
@@ -79,30 +79,31 @@ const ReelItem = ({
     if (videoRef.current) {
       if (isPlaying) {
         videoRef.current.pause();
+        setIsPlaying(false);
       } else {
-        videoRef.current.play();
+        videoRef.current.play().then(() => setIsPlaying(true)).catch(() => {});
       }
-      setIsPlaying(!isPlaying);
     }
   };
 
   return (
-    <div className="h-screen w-full flex-shrink-0 relative snap-start snap-always">
+    <div className="h-screen w-full flex-shrink-0 relative snap-start snap-always bg-black">
       <div className="absolute inset-0" onClick={togglePlay}>
         <video
           ref={videoRef}
           src={reel.video_url}
-          className="w-full h-full object-cover"
+          className="w-full h-full object-contain bg-black"
           loop
           muted={isMuted}
           playsInline
-          preload="auto"
+          preload="metadata"
+          poster=""
         />
 
         {!isPlaying && (
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
             <div className="w-20 h-20 bg-black/50 rounded-full flex items-center justify-center">
-              <Play className="w-10 h-10 text-white" />
+              <Play className="w-10 h-10 text-white ml-1" />
             </div>
           </div>
         )}
@@ -207,10 +208,13 @@ const Reels = () => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isMuted, setIsMuted] = useState(true);
   const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [likedReels, setLikedReels] = useState<Set<string>>(new Set());
   const [savedReels, setSavedReels] = useState<Set<string>>(new Set());
   const [commentsOpen, setCommentsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const [pullDistance, setPullDistance] = useState(0);
+  const touchStartY = useRef(0);
 
   useEffect(() => {
     if (!user) {
@@ -222,7 +226,8 @@ const Reels = () => {
     fetchSavedReels();
   }, [user, navigate]);
 
-  const fetchReels = async () => {
+  const fetchReels = async (showRefresh = false) => {
+    if (showRefresh) setIsRefreshing(true);
     try {
       const { data, error } = await supabase
         .from("reels")
@@ -248,10 +253,15 @@ const Reels = () => {
       );
 
       setReels(reelsWithProfiles);
+      if (showRefresh) {
+        setCurrentIndex(0);
+        toast({ title: "Reels refreshed!" });
+      }
     } catch (error) {
       console.error("Error fetching reels:", error);
     } finally {
       setIsLoading(false);
+      setIsRefreshing(false);
     }
   };
 
@@ -277,6 +287,31 @@ const Reels = () => {
       }
     }
   }, [currentIndex, reels.length]);
+
+  // Pull to refresh handlers
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (containerRef.current?.scrollTop === 0) {
+      touchStartY.current = e.touches[0].clientY;
+    }
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (containerRef.current?.scrollTop === 0 && touchStartY.current > 0) {
+      const currentY = e.touches[0].clientY;
+      const diff = currentY - touchStartY.current;
+      if (diff > 0 && diff < 150) {
+        setPullDistance(diff);
+      }
+    }
+  };
+
+  const handleTouchEnd = () => {
+    if (pullDistance > 80 && !isRefreshing) {
+      fetchReels(true);
+    }
+    setPullDistance(0);
+    touchStartY.current = 0;
+  };
 
   const handleSave = async (reel: Reel) => {
     if (!user) return;
@@ -403,23 +438,34 @@ const Reels = () => {
 
   return (
     <div className="h-screen w-full bg-black relative overflow-hidden">
-      {/* Progress indicators */}
-      <div className="absolute top-4 left-4 right-4 flex gap-1 z-20">
-        {reels.map((_, index) => (
-          <div
-            key={index}
-            className={`h-1 flex-1 rounded-full transition-colors ${
-              index === currentIndex ? "bg-white" : "bg-white/30"
-            }`}
-          />
-        ))}
-      </div>
+      {/* Pull to refresh indicator */}
+      {pullDistance > 0 && (
+        <div 
+          className="absolute top-0 left-0 right-0 flex items-center justify-center z-30 transition-transform"
+          style={{ transform: `translateY(${Math.min(pullDistance, 80)}px)` }}
+        >
+          <div className={`bg-white/20 rounded-full p-2 ${pullDistance > 80 ? 'animate-spin' : ''}`}>
+            <RefreshCw className="w-6 h-6 text-white" />
+          </div>
+        </div>
+      )}
+
+      {isRefreshing && (
+        <div className="absolute top-4 left-0 right-0 flex items-center justify-center z-30">
+          <div className="bg-white/20 rounded-full p-2 animate-spin">
+            <RefreshCw className="w-6 h-6 text-white" />
+          </div>
+        </div>
+      )}
 
       {/* Scrollable reels container */}
       <div
         ref={containerRef}
         className="h-screen w-full overflow-y-scroll snap-y snap-mandatory scrollbar-hide"
         onScroll={handleScroll}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
         style={{ scrollSnapType: "y mandatory" }}
       >
         {reels.map((reel, index) => (
@@ -431,7 +477,6 @@ const Reels = () => {
             likedReels={likedReels}
             savedReels={savedReels}
             user={user}
-            profile={profile}
             onLike={handleLike}
             onSave={handleSave}
             onShare={handleShare}
