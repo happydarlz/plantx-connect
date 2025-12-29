@@ -565,6 +565,10 @@ export type Database = {
     }
     Functions: {
       delete_expired_stories: { Args: never; Returns: undefined }
+      is_chat_member: {
+        Args: { p_chat_id: string; p_user_id: string }
+        Returns: boolean
+      }
     }
     Enums: {
       [_ in never]: never

@@ -294,7 +294,7 @@ const Search = () => {
                         height={plant.height || "N/A"}
                         size={plant.size || "N/A"}
                         nurseryName={plant.profiles?.nursery_name || "Unknown"}
-                        onClick={() => plant.profiles?.username && goToUserProfile(plant.profiles.username)}
+                        onClick={() => navigate(`/plant/${plant.id}`)}
                       />
                     </motion.div>
                   ))}

@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Camera, MapPin, ArrowRight, ArrowLeft, Check } from "lucide-react";
+import { Camera, MapPin, ArrowRight, ArrowLeft, Check, Loader2, Navigation } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -30,6 +30,9 @@ const Onboarding = () => {
   const [username, setUsername] = useState("");
   const [bio, setBio] = useState("");
   const [address, setAddress] = useState("");
+  const [latitude, setLatitude] = useState<number | null>(null);
+  const [longitude, setLongitude] = useState<number | null>(null);
+  const [isGettingLocation, setIsGettingLocation] = useState(false);
 
   // Redirect if already has profile
   useEffect(() => {
@@ -55,6 +58,69 @@ const Onboarding = () => {
       };
       reader.readAsDataURL(file);
     }
+  };
+
+  const getCurrentLocation = () => {
+    if (!navigator.geolocation) {
+      toast({
+        title: "Geolocation not supported",
+        description: "Your browser doesn't support location services",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsGettingLocation(true);
+
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        const { latitude: lat, longitude: lng } = position.coords;
+        setLatitude(lat);
+        setLongitude(lng);
+
+        // Reverse geocode to get address
+        try {
+          const response = await fetch(
+            `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`
+          );
+          const data = await response.json();
+          if (data.display_name) {
+            setAddress(data.display_name);
+          }
+          toast({
+            title: "Location detected!",
+            description: "Your location has been automatically set",
+          });
+        } catch (error) {
+          console.error("Reverse geocoding error:", error);
+          setAddress(`${lat.toFixed(6)}, ${lng.toFixed(6)}`);
+        }
+
+        setIsGettingLocation(false);
+      },
+      (error) => {
+        console.error("Geolocation error:", error);
+        setIsGettingLocation(false);
+        let message = "Unable to get your location";
+        if (error.code === error.PERMISSION_DENIED) {
+          message = "Location permission denied. Please enable location access.";
+        } else if (error.code === error.POSITION_UNAVAILABLE) {
+          message = "Location information unavailable";
+        } else if (error.code === error.TIMEOUT) {
+          message = "Location request timed out";
+        }
+        toast({
+          title: "Location Error",
+          description: message,
+          variant: "destructive",
+        });
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 0,
+      }
+    );
   };
 
   const handleNext = () => {
@@ -138,13 +204,15 @@ const Onboarding = () => {
         }
       }
 
-      // Create profile
+      // Create profile with location
       const { error } = await supabase.from("profiles").insert({
         user_id: user.id,
         nursery_name: nurseryName,
         username: username.toLowerCase().replace(/\s/g, ""),
         bio,
         address,
+        latitude,
+        longitude,
         profile_image: profileImageUrl,
       });
 
@@ -321,6 +389,42 @@ const Onboarding = () => {
               exit={{ opacity: 0, x: -20 }}
               className="space-y-4"
             >
+              {/* Auto-detect location button */}
+              <Button
+                type="button"
+                variant="outline"
+                onClick={getCurrentLocation}
+                disabled={isGettingLocation}
+                className="w-full h-12 rounded-xl flex items-center justify-center gap-2"
+              >
+                {isGettingLocation ? (
+                  <>
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    Detecting location...
+                  </>
+                ) : (
+                  <>
+                    <Navigation className="w-5 h-5" />
+                    Use my current location
+                  </>
+                )}
+              </Button>
+
+              {latitude && longitude && (
+                <div className="p-3 bg-primary/10 rounded-xl flex items-center gap-2">
+                  <MapPin className="w-5 h-5 text-primary" />
+                  <span className="text-sm text-primary font-medium">
+                    Location detected: {latitude.toFixed(4)}, {longitude.toFixed(4)}
+                  </span>
+                </div>
+              )}
+
+              <div className="flex items-center gap-4">
+                <div className="flex-1 h-px bg-border" />
+                <span className="text-sm text-muted-foreground">or enter manually</span>
+                <div className="flex-1 h-px bg-border" />
+              </div>
+
               <div>
                 <label className="text-sm font-medium text-foreground mb-2 block">
                   Address
@@ -338,7 +442,7 @@ const Onboarding = () => {
               </div>
 
               <p className="text-xs text-muted-foreground text-center">
-                You can update this later from your profile settings
+                Your location helps customers find your nursery on Google Maps
               </p>
             </motion.div>
           )}
