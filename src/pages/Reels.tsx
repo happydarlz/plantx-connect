@@ -1,12 +1,16 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Heart, MessageCircle, Share2, Volume2, VolumeX, Play, Bookmark, RefreshCw } from "lucide-react";
+import { Heart, MessageCircle, Share2, Volume2, VolumeX, Play, Bookmark, RefreshCw, Send, Trash2, MoreVertical } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import BottomNav from "@/components/BottomNav";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { useNavigate } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
 import { sendLikeNotification, sendFollowNotification } from "@/lib/notifications";
+import { motion, AnimatePresence } from "framer-motion";
 
 interface Reel {
   id: string;
@@ -22,6 +26,17 @@ interface Reel {
   comments_count: number;
 }
 
+interface ReelComment {
+  id: string;
+  content: string;
+  user_id: string;
+  created_at: string;
+  profile?: {
+    username: string;
+    profile_image: string | null;
+  };
+}
+
 const ReelItem = ({
   reel,
   isActive,
@@ -30,12 +45,14 @@ const ReelItem = ({
   savedReels,
   user,
   onLike,
+  onDoubleTapLike,
   onSave,
   onShare,
   onFollow,
   onToggleMute,
   onOpenComments,
   onGoToProfile,
+  commentsCount,
 }: {
   reel: Reel;
   isActive: boolean;
@@ -44,15 +61,19 @@ const ReelItem = ({
   savedReels: Set<string>;
   user: any;
   onLike: (reel: Reel) => void;
+  onDoubleTapLike: (reel: Reel) => void;
   onSave: (reel: Reel) => void;
   onShare: (reel: Reel) => void;
   onFollow: (reel: Reel) => void;
   onToggleMute: () => void;
   onOpenComments: () => void;
   onGoToProfile: (username: string) => void;
+  commentsCount: number;
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [showLikeAnimation, setShowLikeAnimation] = useState(false);
+  const lastTapRef = useRef(0);
 
   useEffect(() => {
     if (videoRef.current) {
@@ -75,20 +96,37 @@ const ReelItem = ({
     }
   }, [isMuted]);
 
-  const togglePlay = () => {
-    if (videoRef.current) {
-      if (isPlaying) {
-        videoRef.current.pause();
-        setIsPlaying(false);
-      } else {
-        videoRef.current.play().then(() => setIsPlaying(true)).catch(() => {});
-      }
+  const handleTap = (e: React.MouseEvent) => {
+    const now = Date.now();
+    const timeSinceLastTap = now - lastTapRef.current;
+
+    if (timeSinceLastTap < 300 && timeSinceLastTap > 0) {
+      // Double tap - like
+      onDoubleTapLike(reel);
+      setShowLikeAnimation(true);
+      setTimeout(() => setShowLikeAnimation(false), 1000);
+      lastTapRef.current = 0;
+    } else {
+      // Single tap - toggle play
+      lastTapRef.current = now;
+      setTimeout(() => {
+        if (lastTapRef.current === now) {
+          if (videoRef.current) {
+            if (isPlaying) {
+              videoRef.current.pause();
+              setIsPlaying(false);
+            } else {
+              videoRef.current.play().then(() => setIsPlaying(true)).catch(() => {});
+            }
+          }
+        }
+      }, 300);
     }
   };
 
   return (
     <div className="h-screen w-full flex-shrink-0 relative snap-start snap-always bg-black">
-      <div className="absolute inset-0" onClick={togglePlay}>
+      <div className="absolute inset-0" onClick={handleTap}>
         <video
           ref={videoRef}
           src={reel.video_url}
@@ -107,6 +145,20 @@ const ReelItem = ({
             </div>
           </div>
         )}
+
+        {/* Double tap like animation */}
+        <AnimatePresence>
+          {showLikeAnimation && (
+            <motion.div
+              initial={{ scale: 0, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0, opacity: 0 }}
+              className="absolute inset-0 flex items-center justify-center pointer-events-none"
+            >
+              <Heart className="w-32 h-32 text-white fill-red-500" />
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-transparent to-black/60 pointer-events-none" />
 
@@ -164,7 +216,7 @@ const ReelItem = ({
             className="flex flex-col items-center"
           >
             <MessageCircle className="w-8 h-8 text-white" />
-            <span className="text-white text-xs mt-1">0</span>
+            <span className="text-white text-xs mt-1">{commentsCount}</span>
           </button>
           <button
             onClick={(e) => {
@@ -212,6 +264,10 @@ const Reels = () => {
   const [likedReels, setLikedReels] = useState<Set<string>>(new Set());
   const [savedReels, setSavedReels] = useState<Set<string>>(new Set());
   const [commentsOpen, setCommentsOpen] = useState(false);
+  const [comments, setComments] = useState<ReelComment[]>([]);
+  const [commentText, setCommentText] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [commentsCounts, setCommentsCounts] = useState<Record<string, number>>({});
   const containerRef = useRef<HTMLDivElement>(null);
   const [pullDistance, setPullDistance] = useState(0);
   const touchStartY = useRef(0);
@@ -239,15 +295,19 @@ const Reels = () => {
 
       const reelsWithProfiles = await Promise.all(
         (data || []).map(async (reel) => {
-          const [profileResult, likesResult] = await Promise.all([
+          const [profileResult, likesResult, commentsResult] = await Promise.all([
             supabase.from("profiles").select("username, nursery_name, profile_image").eq("user_id", reel.user_id).maybeSingle(),
             supabase.from("reel_likes").select("id", { count: "exact" }).eq("reel_id", reel.id),
+            supabase.from("reel_comments").select("id", { count: "exact" }).eq("reel_id", reel.id),
           ]);
+          
+          setCommentsCounts(prev => ({ ...prev, [reel.id]: commentsResult.count || 0 }));
+          
           return {
             ...reel,
             profiles: profileResult.data,
             likes_count: likesResult.count || 0,
-            comments_count: 0,
+            comments_count: commentsResult.count || 0,
           };
         })
       );
@@ -277,6 +337,69 @@ const Reels = () => {
     setSavedReels(new Set(data?.map((s) => s.reel_id) || []));
   };
 
+  const fetchComments = async (reelId: string) => {
+    const { data, error } = await supabase
+      .from("reel_comments")
+      .select("*")
+      .eq("reel_id", reelId)
+      .order("created_at", { ascending: true });
+
+    if (error) {
+      console.error("Error fetching comments:", error);
+      return;
+    }
+
+    const commentsWithProfiles = await Promise.all(
+      (data || []).map(async (comment) => {
+        const { data: profileData } = await supabase
+          .from("profiles")
+          .select("username, profile_image")
+          .eq("user_id", comment.user_id)
+          .maybeSingle();
+        return { ...comment, profile: profileData };
+      })
+    );
+
+    setComments(commentsWithProfiles);
+  };
+
+  const handleAddComment = async () => {
+    if (!user || !commentText.trim() || !reels[currentIndex]) return;
+
+    setIsSubmitting(true);
+    try {
+      const { error } = await supabase.from("reel_comments").insert({
+        reel_id: reels[currentIndex].id,
+        user_id: user.id,
+        content: commentText.trim(),
+      });
+
+      if (error) throw error;
+
+      setCommentText("");
+      fetchComments(reels[currentIndex].id);
+      setCommentsCounts(prev => ({ ...prev, [reels[currentIndex].id]: (prev[reels[currentIndex].id] || 0) + 1 }));
+      toast({ title: "Comment added!" });
+    } catch (error) {
+      console.error("Error adding comment:", error);
+      toast({ title: "Failed to add comment", variant: "destructive" });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleDeleteComment = async (commentId: string) => {
+    try {
+      const { error } = await supabase.from("reel_comments").delete().eq("id", commentId);
+      if (error) throw error;
+      setComments(prev => prev.filter(c => c.id !== commentId));
+      setCommentsCounts(prev => ({ ...prev, [reels[currentIndex].id]: Math.max(0, (prev[reels[currentIndex].id] || 0) - 1) }));
+      toast({ title: "Comment deleted" });
+    } catch (error) {
+      console.error("Error deleting comment:", error);
+    }
+  };
+
   const handleScroll = useCallback(() => {
     if (containerRef.current) {
       const scrollTop = containerRef.current.scrollTop;
@@ -288,7 +411,6 @@ const Reels = () => {
     }
   }, [currentIndex, reels.length]);
 
-  // Pull to refresh handlers
   const handleTouchStart = (e: React.TouchEvent) => {
     if (containerRef.current?.scrollTop === 0) {
       touchStartY.current = e.touches[0].clientY;
@@ -372,6 +494,29 @@ const Reels = () => {
     }
   };
 
+  const handleDoubleTapLike = async (reel: Reel) => {
+    if (!user || likedReels.has(reel.id)) return;
+    
+    try {
+      await supabase.from("reel_likes").insert({ reel_id: reel.id, user_id: user.id });
+      setLikedReels((prev) => new Set(prev).add(reel.id));
+      setReels((prev) =>
+        prev.map((r) => (r.id === reel.id ? { ...r, likes_count: r.likes_count + 1 } : r))
+      );
+
+      if (reel.user_id !== user.id) {
+        await supabase.from("notifications").insert({
+          user_id: reel.user_id,
+          type: "like",
+          from_user_id: user.id,
+        });
+        if (profile) sendLikeNotification(profile.username, "reel");
+      }
+    } catch (error) {
+      console.error("Like error:", error);
+    }
+  };
+
   const handleShare = async (reel: Reel) => {
     const url = `${window.location.origin}/user/${reel.profiles?.username}`;
     try {
@@ -413,6 +558,23 @@ const Reels = () => {
     navigate(`/user/${username}`);
   };
 
+  const openComments = () => {
+    if (reels[currentIndex]) {
+      fetchComments(reels[currentIndex].id);
+      setCommentsOpen(true);
+    }
+  };
+
+  const formatTime = (date: string) => {
+    const seconds = Math.floor((Date.now() - new Date(date).getTime()) / 1000);
+    if (seconds < 60) return "now";
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes}m`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}h`;
+    return `${Math.floor(hours / 24)}d`;
+  };
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-black flex items-center justify-center">
@@ -438,7 +600,6 @@ const Reels = () => {
 
   return (
     <div className="h-screen w-full bg-black relative overflow-hidden">
-      {/* Pull to refresh indicator */}
       {pullDistance > 0 && (
         <div 
           className="absolute top-0 left-0 right-0 flex items-center justify-center z-30 transition-transform"
@@ -458,7 +619,6 @@ const Reels = () => {
         </div>
       )}
 
-      {/* Scrollable reels container */}
       <div
         ref={containerRef}
         className="h-screen w-full overflow-y-scroll snap-y snap-mandatory scrollbar-hide"
@@ -478,25 +638,78 @@ const Reels = () => {
             savedReels={savedReels}
             user={user}
             onLike={handleLike}
+            onDoubleTapLike={handleDoubleTapLike}
             onSave={handleSave}
             onShare={handleShare}
             onFollow={handleFollow}
             onToggleMute={() => setIsMuted(!isMuted)}
-            onOpenComments={() => setCommentsOpen(true)}
+            onOpenComments={openComments}
             onGoToProfile={goToProfile}
+            commentsCount={commentsCounts[reel.id] || 0}
           />
         ))}
       </div>
 
       {/* Comments Sheet */}
       <Sheet open={commentsOpen} onOpenChange={setCommentsOpen}>
-        <SheetContent side="bottom" className="h-[60vh] rounded-t-3xl px-0">
+        <SheetContent side="bottom" className="h-[70vh] rounded-t-3xl px-0">
           <SheetHeader className="px-4 pb-3 border-b border-border">
             <SheetTitle className="text-center">Comments</SheetTitle>
           </SheetHeader>
-          <div className="flex flex-col h-[calc(60vh-60px)]">
-            <div className="flex-1 flex items-center justify-center">
-              <p className="text-muted-foreground">Comments coming soon!</p>
+          <div className="flex flex-col h-[calc(70vh-120px)]">
+            <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4">
+              {comments.length === 0 ? (
+                <div className="flex items-center justify-center h-full">
+                  <p className="text-muted-foreground">No comments yet. Be the first!</p>
+                </div>
+              ) : (
+                comments.map((comment) => (
+                  <div key={comment.id} className="flex gap-3">
+                    <Avatar className="w-9 h-9">
+                      <AvatarImage src={comment.profile?.profile_image || ""} />
+                      <AvatarFallback>{comment.profile?.username?.[0]?.toUpperCase()}</AvatarFallback>
+                    </Avatar>
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="font-semibold text-sm">{comment.profile?.username}</span>
+                        <span className="text-xs text-muted-foreground">{formatTime(comment.created_at)}</span>
+                      </div>
+                      <p className="text-sm text-foreground">{comment.content}</p>
+                    </div>
+                    {user?.id === comment.user_id && (
+                      <button 
+                        onClick={() => handleDeleteComment(comment.id)}
+                        className="p-1.5 hover:bg-destructive/10 rounded-full"
+                      >
+                        <Trash2 className="w-4 h-4 text-destructive" />
+                      </button>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+            
+            {/* Comment input */}
+            <div className="border-t border-border px-4 py-3 flex items-center gap-3">
+              <Avatar className="w-8 h-8">
+                <AvatarImage src={profile?.profile_image || ""} />
+                <AvatarFallback>{profile?.username?.[0]?.toUpperCase()}</AvatarFallback>
+              </Avatar>
+              <Input
+                placeholder="Add a comment..."
+                value={commentText}
+                onChange={(e) => setCommentText(e.target.value)}
+                onKeyPress={(e) => e.key === "Enter" && handleAddComment()}
+                className="flex-1 border-0 bg-secondary rounded-full"
+              />
+              <Button
+                size="icon"
+                onClick={handleAddComment}
+                disabled={!commentText.trim() || isSubmitting}
+                className="rounded-full w-9 h-9"
+              >
+                <Send className="w-4 h-4" />
+              </Button>
             </div>
           </div>
         </SheetContent>
