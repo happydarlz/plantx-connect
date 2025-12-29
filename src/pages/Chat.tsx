@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { motion } from "framer-motion";
-import { Search, Send, Image, ArrowLeft, Lock, Paperclip, FileIcon, X } from "lucide-react";
+import { Search, Send, Image, ArrowLeft, Lock, Paperclip, FileIcon, X, Trash2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import BottomNav from "@/components/BottomNav";
 import { useAuth } from "@/contexts/AuthContext";
@@ -8,6 +8,16 @@ import { supabase } from "@/integrations/supabase/client";
 import { useNavigate } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
 import { encryptMessage, decryptMessage, isEncrypted } from "@/lib/encryption";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 interface ChatPreview {
   id: string;
@@ -42,6 +52,7 @@ const Chat = () => {
   const [decryptedMessages, setDecryptedMessages] = useState<Map<string, string>>(new Map());
   const [isLoading, setIsLoading] = useState(true);
   const [isSending, setIsSending] = useState(false);
+  const [chatToDelete, setChatToDelete] = useState<ChatPreview | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -271,6 +282,24 @@ const Chat = () => {
     return decryptedMessages.get(msg.id) || msg.content;
   };
 
+  const deleteChat = async (chatId: string) => {
+    try {
+      // Delete messages first
+      await supabase.from("messages").delete().eq("chat_id", chatId);
+      // Delete participants
+      await supabase.from("chat_participants").delete().eq("chat_id", chatId);
+      // Delete chat
+      await supabase.from("chats").delete().eq("id", chatId);
+      
+      setChats((prev) => prev.filter((c) => c.id !== chatId));
+      setChatToDelete(null);
+      toast({ title: "Chat deleted" });
+    } catch (error) {
+      console.error("Error deleting chat:", error);
+      toast({ title: "Failed to delete chat", variant: "destructive" });
+    }
+  };
+
   const filteredChats = chats.filter(
     (chat) =>
       chat.name.toLowerCase().includes(query.toLowerCase()) ||
@@ -419,40 +448,71 @@ const Chat = () => {
           </div>
         ) : (
           filteredChats.map((chat, index) => (
-            <motion.button
+            <motion.div
               key={chat.id}
-              onClick={() => {
-                setSelectedChat(chat.id);
-                setSelectedChatData(chat);
-              }}
-              className="w-full flex items-center gap-3 py-4 border-b border-border last:border-0"
+              className="flex items-center gap-3 py-4 border-b border-border last:border-0"
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: index * 0.05 }}
             >
-              <div className="relative">
-                <div className="w-14 h-14 rounded-full overflow-hidden border-2 border-primary/20">
-                  <img src={chat.avatar} alt={chat.name} className="w-full h-full object-cover" />
+              <button
+                onClick={() => {
+                  setSelectedChat(chat.id);
+                  setSelectedChatData(chat);
+                }}
+                className="flex-1 flex items-center gap-3"
+              >
+                <div className="relative">
+                  <div className="w-14 h-14 rounded-full overflow-hidden border-2 border-primary/20">
+                    <img src={chat.avatar} alt={chat.name} className="w-full h-full object-cover" />
+                  </div>
+                  {chat.unread > 0 && (
+                    <span className="absolute -top-1 -right-1 w-5 h-5 bg-destructive rounded-full flex items-center justify-center text-[10px] font-semibold text-destructive-foreground">
+                      {chat.unread}
+                    </span>
+                  )}
                 </div>
-                {chat.unread > 0 && (
-                  <span className="absolute -top-1 -right-1 w-5 h-5 bg-destructive rounded-full flex items-center justify-center text-[10px] font-semibold text-destructive-foreground">
-                    {chat.unread}
-                  </span>
-                )}
-              </div>
-              <div className="flex-1 text-left min-w-0">
-                <div className="flex items-center justify-between">
-                  <h3 className="font-semibold text-foreground">{chat.name}</h3>
-                  <span className="text-xs text-muted-foreground">{chat.time}</span>
+                <div className="flex-1 text-left min-w-0">
+                  <div className="flex items-center justify-between">
+                    <h3 className="font-semibold text-foreground">{chat.name}</h3>
+                    <span className="text-xs text-muted-foreground">{chat.time}</span>
+                  </div>
+                  <p className={`text-sm truncate ${chat.unread > 0 ? "text-foreground font-medium" : "text-muted-foreground"}`}>
+                    {chat.lastMessage}
+                  </p>
                 </div>
-                <p className={`text-sm truncate ${chat.unread > 0 ? "text-foreground font-medium" : "text-muted-foreground"}`}>
-                  {chat.lastMessage}
-                </p>
-              </div>
-            </motion.button>
+              </button>
+              <button
+                onClick={() => setChatToDelete(chat)}
+                className="p-2 text-muted-foreground hover:text-destructive transition-colors"
+              >
+                <Trash2 className="w-5 h-5" />
+              </button>
+            </motion.div>
           ))
         )}
       </div>
+
+      {/* Delete confirmation dialog */}
+      <AlertDialog open={!!chatToDelete} onOpenChange={() => setChatToDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete conversation?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete your conversation with {chatToDelete?.name}. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => chatToDelete && deleteChat(chatToDelete.id)}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <BottomNav />
     </div>
