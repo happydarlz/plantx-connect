@@ -71,44 +71,85 @@ const Onboarding = () => {
     }
 
     setIsGettingLocation(true);
+    toast({ title: "Detecting location...", description: "Please wait, this may take a moment" });
 
-    navigator.geolocation.getCurrentPosition(
+    // Use watchPosition for more accurate results, then clear it
+    const watchId = navigator.geolocation.watchPosition(
       async (position) => {
-        const { latitude: lat, longitude: lng } = position.coords;
+        // Only accept high accuracy readings (< 100m accuracy)
+        if (position.coords.accuracy > 100) {
+          console.log("Waiting for better accuracy:", position.coords.accuracy);
+          return; // Wait for better accuracy
+        }
+
+        // Got a good reading, stop watching
+        navigator.geolocation.clearWatch(watchId);
+
+        const { latitude: lat, longitude: lng, accuracy } = position.coords;
+        console.log("Location obtained:", { lat, lng, accuracy });
+        
         setLatitude(lat);
         setLongitude(lng);
 
         // Reverse geocode to get address
         try {
           const response = await fetch(
-            `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`
+            `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`,
+            {
+              headers: {
+                'User-Agent': 'PlantX-App'
+              }
+            }
           );
           const data = await response.json();
-          if (data.display_name) {
+          
+          if (data.address) {
+            // Build a more accurate address from components
+            const parts = [];
+            if (data.address.village || data.address.town || data.address.city) {
+              parts.push(data.address.village || data.address.town || data.address.city);
+            }
+            if (data.address.county || data.address.state_district) {
+              parts.push(data.address.county || data.address.state_district);
+            }
+            if (data.address.state) {
+              parts.push(data.address.state);
+            }
+            if (data.address.country) {
+              parts.push(data.address.country);
+            }
+            const formattedAddress = parts.join(", ") || data.display_name;
+            setAddress(formattedAddress);
+          } else if (data.display_name) {
             setAddress(data.display_name);
           }
+          
           toast({
             title: "Location detected!",
-            description: "Your location has been automatically set",
+            description: `Accuracy: ${Math.round(accuracy)}m`,
           });
         } catch (error) {
           console.error("Reverse geocoding error:", error);
           setAddress(`${lat.toFixed(6)}, ${lng.toFixed(6)}`);
+          toast({ title: "Location saved", description: "Could not get address, but coordinates are saved" });
         }
 
         setIsGettingLocation(false);
       },
       (error) => {
         console.error("Geolocation error:", error);
+        navigator.geolocation.clearWatch(watchId);
         setIsGettingLocation(false);
+        
         let message = "Unable to get your location";
         if (error.code === error.PERMISSION_DENIED) {
-          message = "Location permission denied. Please enable location access.";
+          message = "Location permission denied. Please enable location access in your browser settings.";
         } else if (error.code === error.POSITION_UNAVAILABLE) {
-          message = "Location information unavailable";
+          message = "Location information unavailable. Please check your device's location settings.";
         } else if (error.code === error.TIMEOUT) {
-          message = "Location request timed out";
+          message = "Location request timed out. Please try again or enter address manually.";
         }
+        
         toast({
           title: "Location Error",
           description: message,
@@ -117,10 +158,45 @@ const Onboarding = () => {
       },
       {
         enableHighAccuracy: true,
-        timeout: 10000,
+        timeout: 60000, // 60 seconds timeout
         maximumAge: 0,
       }
     );
+
+    // Fallback: If no accurate reading within 30 seconds, use whatever we have
+    setTimeout(() => {
+      if (isGettingLocation) {
+        navigator.geolocation.clearWatch(watchId);
+        // Try one more time with lower accuracy requirements
+        navigator.geolocation.getCurrentPosition(
+          async (position) => {
+            const { latitude: lat, longitude: lng } = position.coords;
+            setLatitude(lat);
+            setLongitude(lng);
+            
+            try {
+              const response = await fetch(
+                `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`
+              );
+              const data = await response.json();
+              if (data.display_name) {
+                setAddress(data.display_name);
+              }
+            } catch (e) {
+              setAddress(`${lat.toFixed(6)}, ${lng.toFixed(6)}`);
+            }
+            
+            toast({ title: "Location detected", description: "Used best available accuracy" });
+            setIsGettingLocation(false);
+          },
+          () => {
+            setIsGettingLocation(false);
+            toast({ title: "Could not get location", description: "Please enter address manually", variant: "destructive" });
+          },
+          { enableHighAccuracy: false, timeout: 10000, maximumAge: 60000 }
+        );
+      }
+    }, 30000);
   };
 
   const handleNext = () => {

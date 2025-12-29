@@ -158,53 +158,77 @@ const UserProfileCard = ({ userId, username }: UserProfileCardProps) => {
       return;
     }
 
-    // Check if chat exists
-    const { data: existingParticipants } = await supabase
-      .from("chat_participants")
-      .select("chat_id")
-      .eq("user_id", user.id);
+    try {
+      // Check if chat already exists between these two users
+      const { data: myChats } = await supabase
+        .from("chat_participants")
+        .select("chat_id")
+        .eq("user_id", user.id);
 
-    if (existingParticipants) {
-      for (const p of existingParticipants) {
-        const { data: otherParticipant } = await supabase
-          .from("chat_participants")
-          .select("user_id")
-          .eq("chat_id", p.chat_id)
-          .eq("user_id", userId)
-          .maybeSingle();
+      if (myChats && myChats.length > 0) {
+        // Check each of my chats to see if the other user is a participant
+        for (const chat of myChats) {
+          const { data: otherUser } = await supabase
+            .from("chat_participants")
+            .select("user_id")
+            .eq("chat_id", chat.chat_id)
+            .eq("user_id", userId)
+            .maybeSingle();
 
-        if (otherParticipant) {
-          navigate("/chat");
-          return;
+          if (otherUser) {
+            // Chat already exists, navigate to it
+            navigate("/chat");
+            return;
+          }
         }
       }
+
+      // No existing chat found, create a new one
+      // Step 1: Create the chat
+      const { data: newChat, error: chatError } = await supabase
+        .from("chats")
+        .insert({})
+        .select("id")
+        .single();
+
+      if (chatError || !newChat) {
+        console.error("Failed to create chat:", chatError);
+        toast({ 
+          title: "Error", 
+          description: "Could not start conversation. Please try again.", 
+          variant: "destructive" 
+        });
+        return;
+      }
+
+      // Step 2: Add both participants
+      const { error: participantError } = await supabase
+        .from("chat_participants")
+        .insert([
+          { chat_id: newChat.id, user_id: user.id },
+          { chat_id: newChat.id, user_id: userId },
+        ]);
+
+      if (participantError) {
+        console.error("Failed to add participants:", participantError);
+        toast({ 
+          title: "Error", 
+          description: "Could not set up conversation. Please try again.", 
+          variant: "destructive" 
+        });
+        return;
+      }
+
+      toast({ title: "Chat created!" });
+      navigate("/chat");
+    } catch (error) {
+      console.error("Chat error:", error);
+      toast({ 
+        title: "Error", 
+        description: "Something went wrong. Please try again.", 
+        variant: "destructive" 
+      });
     }
-
-    // Create new chat
-    const { data: newChat, error: chatError } = await supabase
-      .from("chats")
-      .insert({})
-      .select()
-      .single();
-
-    if (chatError) {
-      console.error("Chat creation error:", chatError);
-      toast({ title: "Error creating chat", description: chatError.message, variant: "destructive" });
-      return;
-    }
-
-    const { error: participantError } = await supabase.from("chat_participants").insert([
-      { chat_id: newChat.id, user_id: user.id },
-      { chat_id: newChat.id, user_id: userId },
-    ]);
-
-    if (participantError) {
-      console.error("Participant error:", participantError);
-      toast({ title: "Error setting up chat", variant: "destructive" });
-      return;
-    }
-
-    navigate("/chat");
   };
 
   const openInGoogleMaps = () => {

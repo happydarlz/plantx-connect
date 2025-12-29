@@ -78,25 +78,58 @@ const EditProfileSheet = ({ open, onOpenChange }: EditProfileSheetProps) => {
     }
 
     setIsGettingLocation(true);
+    toast({ title: "Detecting location...", description: "Please wait, this may take a moment" });
 
-    navigator.geolocation.getCurrentPosition(
+    // Use watchPosition for more accurate results
+    const watchId = navigator.geolocation.watchPosition(
       async (position) => {
-        const { latitude: lat, longitude: lng } = position.coords;
+        // Only accept readings with good accuracy (< 100m)
+        if (position.coords.accuracy > 100) {
+          console.log("Waiting for better accuracy:", position.coords.accuracy);
+          return;
+        }
+
+        navigator.geolocation.clearWatch(watchId);
+
+        const { latitude: lat, longitude: lng, accuracy } = position.coords;
+        console.log("Location obtained:", { lat, lng, accuracy });
+        
         setLatitude(lat);
         setLongitude(lng);
 
         // Reverse geocode to get address
         try {
           const response = await fetch(
-            `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`
+            `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`,
+            {
+              headers: { 'User-Agent': 'PlantX-App' }
+            }
           );
           const data = await response.json();
-          if (data.display_name) {
+          
+          if (data.address) {
+            const parts = [];
+            if (data.address.village || data.address.town || data.address.city) {
+              parts.push(data.address.village || data.address.town || data.address.city);
+            }
+            if (data.address.county || data.address.state_district) {
+              parts.push(data.address.county || data.address.state_district);
+            }
+            if (data.address.state) {
+              parts.push(data.address.state);
+            }
+            if (data.address.country) {
+              parts.push(data.address.country);
+            }
+            const formattedAddress = parts.join(", ") || data.display_name;
+            setAddress(formattedAddress);
+          } else if (data.display_name) {
             setAddress(data.display_name);
           }
+          
           toast({
             title: "Location updated!",
-            description: "Your location has been automatically set",
+            description: `Accuracy: ${Math.round(accuracy)}m`,
           });
         } catch (error) {
           console.error("Reverse geocoding error:", error);
@@ -107,15 +140,18 @@ const EditProfileSheet = ({ open, onOpenChange }: EditProfileSheetProps) => {
       },
       (error) => {
         console.error("Geolocation error:", error);
+        navigator.geolocation.clearWatch(watchId);
         setIsGettingLocation(false);
+        
         let message = "Unable to get your location";
         if (error.code === error.PERMISSION_DENIED) {
           message = "Location permission denied. Please enable location access.";
         } else if (error.code === error.POSITION_UNAVAILABLE) {
-          message = "Location information unavailable";
+          message = "Location information unavailable. Check device settings.";
         } else if (error.code === error.TIMEOUT) {
-          message = "Location request timed out";
+          message = "Location request timed out. Please try again.";
         }
+        
         toast({
           title: "Location Error",
           description: message,
@@ -123,11 +159,45 @@ const EditProfileSheet = ({ open, onOpenChange }: EditProfileSheetProps) => {
         });
       },
       {
-        enableHighAccuracy: false,
-        timeout: 30000,
-        maximumAge: 60000,
+        enableHighAccuracy: true,
+        timeout: 60000,
+        maximumAge: 0,
       }
     );
+
+    // Fallback after 30 seconds
+    setTimeout(() => {
+      if (isGettingLocation) {
+        navigator.geolocation.clearWatch(watchId);
+        navigator.geolocation.getCurrentPosition(
+          async (position) => {
+            const { latitude: lat, longitude: lng } = position.coords;
+            setLatitude(lat);
+            setLongitude(lng);
+            
+            try {
+              const response = await fetch(
+                `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`
+              );
+              const data = await response.json();
+              if (data.display_name) {
+                setAddress(data.display_name);
+              }
+            } catch (e) {
+              setAddress(`${lat.toFixed(6)}, ${lng.toFixed(6)}`);
+            }
+            
+            toast({ title: "Location updated", description: "Used best available accuracy" });
+            setIsGettingLocation(false);
+          },
+          () => {
+            setIsGettingLocation(false);
+            toast({ title: "Could not get location", description: "Please enter address manually", variant: "destructive" });
+          },
+          { enableHighAccuracy: false, timeout: 10000, maximumAge: 60000 }
+        );
+      }
+    }, 30000);
   };
 
   const addLink = () => {
