@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { Heart, MessageCircle, Share2, Volume2, VolumeX, Play, Bookmark } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import BottomNav from "@/components/BottomNav";
@@ -22,6 +22,183 @@ interface Reel {
   comments_count: number;
 }
 
+const ReelItem = ({
+  reel,
+  isActive,
+  isMuted,
+  likedReels,
+  savedReels,
+  user,
+  profile,
+  onLike,
+  onSave,
+  onShare,
+  onFollow,
+  onToggleMute,
+  onOpenComments,
+  onGoToProfile,
+}: {
+  reel: Reel;
+  isActive: boolean;
+  isMuted: boolean;
+  likedReels: Set<string>;
+  savedReels: Set<string>;
+  user: any;
+  profile: any;
+  onLike: (reel: Reel) => void;
+  onSave: (reel: Reel) => void;
+  onShare: (reel: Reel) => void;
+  onFollow: (reel: Reel) => void;
+  onToggleMute: () => void;
+  onOpenComments: () => void;
+  onGoToProfile: (username: string) => void;
+}) => {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [isPlaying, setIsPlaying] = useState(true);
+
+  useEffect(() => {
+    if (videoRef.current) {
+      if (isActive) {
+        videoRef.current.play().catch(() => {});
+        setIsPlaying(true);
+      } else {
+        videoRef.current.pause();
+        videoRef.current.currentTime = 0;
+        setIsPlaying(false);
+      }
+    }
+  }, [isActive]);
+
+  useEffect(() => {
+    if (videoRef.current) {
+      videoRef.current.muted = isMuted;
+    }
+  }, [isMuted]);
+
+  const togglePlay = () => {
+    if (videoRef.current) {
+      if (isPlaying) {
+        videoRef.current.pause();
+      } else {
+        videoRef.current.play();
+      }
+      setIsPlaying(!isPlaying);
+    }
+  };
+
+  return (
+    <div className="h-screen w-full flex-shrink-0 relative snap-start snap-always">
+      <div className="absolute inset-0" onClick={togglePlay}>
+        <video
+          ref={videoRef}
+          src={reel.video_url}
+          className="w-full h-full object-cover"
+          loop
+          muted={isMuted}
+          playsInline
+          preload="auto"
+        />
+
+        {!isPlaying && (
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+            <div className="w-20 h-20 bg-black/50 rounded-full flex items-center justify-center">
+              <Play className="w-10 h-10 text-white" />
+            </div>
+          </div>
+        )}
+
+        <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-transparent to-black/60 pointer-events-none" />
+
+        {/* User info */}
+        <div className="absolute bottom-24 left-4 right-16">
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              if (reel.profiles?.username) onGoToProfile(reel.profiles.username);
+            }}
+            className="flex items-center gap-3 mb-3"
+          >
+            <div className="w-10 h-10 rounded-full overflow-hidden border-2 border-white">
+              <img
+                src={reel.profiles?.profile_image || "https://images.unsplash.com/photo-1466781783364-36c955e42a7f?w=100"}
+                alt=""
+                className="w-full h-full object-cover"
+              />
+            </div>
+            <span className="text-white font-semibold">@{reel.profiles?.username}</span>
+          </button>
+          {user && reel.user_id !== user.id && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onFollow(reel);
+              }}
+              className="px-4 py-1.5 border border-white rounded-full text-white text-sm mb-3"
+            >
+              Follow
+            </button>
+          )}
+          <p className="text-white text-sm">{reel.caption}</p>
+        </div>
+
+        {/* Side actions */}
+        <div className="absolute right-4 bottom-32 flex flex-col items-center gap-6">
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onLike(reel);
+            }}
+            className="flex flex-col items-center active:scale-90 transition-transform"
+          >
+            <Heart
+              className={`w-8 h-8 ${likedReels.has(reel.id) ? "fill-red-500 text-red-500" : "text-white"}`}
+            />
+            <span className="text-white text-xs mt-1">{reel.likes_count}</span>
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenComments();
+            }}
+            className="flex flex-col items-center"
+          >
+            <MessageCircle className="w-8 h-8 text-white" />
+            <span className="text-white text-xs mt-1">0</span>
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onShare(reel);
+            }}
+            className="flex flex-col items-center"
+          >
+            <Share2 className="w-8 h-8 text-white" />
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onSave(reel);
+            }}
+            className="flex flex-col items-center"
+          >
+            <Bookmark
+              className={`w-8 h-8 ${savedReels.has(reel.id) ? "fill-white text-white" : "text-white"}`}
+            />
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleMute();
+            }}
+          >
+            {isMuted ? <VolumeX className="w-8 h-8 text-white" /> : <Volume2 className="w-8 h-8 text-white" />}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const Reels = () => {
   const { user, profile } = useAuth();
   const navigate = useNavigate();
@@ -29,14 +206,13 @@ const Reels = () => {
   const [reels, setReels] = useState<Reel[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isMuted, setIsMuted] = useState(true);
-  const [isPlaying, setIsPlaying] = useState(true);
   const [isLoading, setIsLoading] = useState(true);
   const [likedReels, setLikedReels] = useState<Set<string>>(new Set());
   const [savedReels, setSavedReels] = useState<Set<string>>(new Set());
   const [commentsOpen, setCommentsOpen] = useState(false);
-  const videoRef = useRef<HTMLVideoElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
-useEffect(() => {
+  useEffect(() => {
     if (!user) {
       navigate("/auth");
       return;
@@ -79,7 +255,7 @@ useEffect(() => {
     }
   };
 
-const fetchLikedReels = async () => {
+  const fetchLikedReels = async () => {
     if (!user) return;
     const { data } = await supabase.from("reel_likes").select("reel_id").eq("user_id", user.id);
     setLikedReels(new Set(data?.map((l) => l.reel_id) || []));
@@ -91,22 +267,33 @@ const fetchLikedReels = async () => {
     setSavedReels(new Set(data?.map((s) => s.reel_id) || []));
   };
 
-  const handleSave = async () => {
-    if (!user || !currentReel) return;
+  const handleScroll = useCallback(() => {
+    if (containerRef.current) {
+      const scrollTop = containerRef.current.scrollTop;
+      const height = window.innerHeight;
+      const newIndex = Math.round(scrollTop / height);
+      if (newIndex !== currentIndex && newIndex >= 0 && newIndex < reels.length) {
+        setCurrentIndex(newIndex);
+      }
+    }
+  }, [currentIndex, reels.length]);
 
-    const isSaved = savedReels.has(currentReel.id);
+  const handleSave = async (reel: Reel) => {
+    if (!user) return;
+
+    const isSaved = savedReels.has(reel.id);
     try {
       if (isSaved) {
-        await supabase.from("reel_saves").delete().eq("reel_id", currentReel.id).eq("user_id", user.id);
+        await supabase.from("reel_saves").delete().eq("reel_id", reel.id).eq("user_id", user.id);
         setSavedReels((prev) => {
           const newSet = new Set(prev);
-          newSet.delete(currentReel.id);
+          newSet.delete(reel.id);
           return newSet;
         });
         toast({ title: "Removed from saved" });
       } else {
-        await supabase.from("reel_saves").insert({ reel_id: currentReel.id, user_id: user.id });
-        setSavedReels((prev) => new Set(prev).add(currentReel.id));
+        await supabase.from("reel_saves").insert({ reel_id: reel.id, user_id: user.id });
+        setSavedReels((prev) => new Set(prev).add(reel.id));
         toast({ title: "Reel saved!" });
       }
     } catch (error) {
@@ -114,55 +301,34 @@ const fetchLikedReels = async () => {
     }
   };
 
-  const handleScroll = (direction: "up" | "down") => {
-    if (direction === "down" && currentIndex < reels.length - 1) {
-      setCurrentIndex(currentIndex + 1);
-    } else if (direction === "up" && currentIndex > 0) {
-      setCurrentIndex(currentIndex - 1);
-    }
-  };
+  const handleLike = async (reel: Reel) => {
+    if (!user) return;
 
-  const togglePlay = () => {
-    if (videoRef.current) {
-      if (isPlaying) {
-        videoRef.current.pause();
-      } else {
-        videoRef.current.play();
-      }
-      setIsPlaying(!isPlaying);
-    }
-  };
-
-  const handleLike = async () => {
-    if (!user || !currentReel) return;
-
-    const isLiked = likedReels.has(currentReel.id);
+    const isLiked = likedReels.has(reel.id);
     try {
       if (isLiked) {
-        await supabase.from("reel_likes").delete().eq("reel_id", currentReel.id).eq("user_id", user.id);
+        await supabase.from("reel_likes").delete().eq("reel_id", reel.id).eq("user_id", user.id);
         setLikedReels((prev) => {
           const newSet = new Set(prev);
-          newSet.delete(currentReel.id);
+          newSet.delete(reel.id);
           return newSet;
         });
         setReels((prev) =>
-          prev.map((r) => (r.id === currentReel.id ? { ...r, likes_count: r.likes_count - 1 } : r))
+          prev.map((r) => (r.id === reel.id ? { ...r, likes_count: r.likes_count - 1 } : r))
         );
       } else {
-        await supabase.from("reel_likes").insert({ reel_id: currentReel.id, user_id: user.id });
-        setLikedReels((prev) => new Set(prev).add(currentReel.id));
+        await supabase.from("reel_likes").insert({ reel_id: reel.id, user_id: user.id });
+        setLikedReels((prev) => new Set(prev).add(reel.id));
         setReels((prev) =>
-          prev.map((r) => (r.id === currentReel.id ? { ...r, likes_count: r.likes_count + 1 } : r))
+          prev.map((r) => (r.id === reel.id ? { ...r, likes_count: r.likes_count + 1 } : r))
         );
 
-        // Notification
-        if (currentReel.user_id !== user.id) {
+        if (reel.user_id !== user.id) {
           await supabase.from("notifications").insert({
-            user_id: currentReel.user_id,
+            user_id: reel.user_id,
             type: "like",
             from_user_id: user.id,
           });
-          // Send browser notification
           if (profile) sendLikeNotification(profile.username, "reel");
         }
       }
@@ -171,14 +337,13 @@ const fetchLikedReels = async () => {
     }
   };
 
-  const handleShare = async () => {
-    if (!currentReel) return;
-    const url = `${window.location.origin}/user/${currentReel.profiles?.username}`;
+  const handleShare = async (reel: Reel) => {
+    const url = `${window.location.origin}/user/${reel.profiles?.username}`;
     try {
       if (navigator.share) {
         await navigator.share({
-          title: `Reel by ${currentReel.profiles?.nursery_name}`,
-          text: currentReel.caption || "Check out this reel!",
+          title: `Reel by ${reel.profiles?.nursery_name}`,
+          text: reel.caption || "Check out this reel!",
           url,
         });
       } else {
@@ -193,16 +358,15 @@ const fetchLikedReels = async () => {
     }
   };
 
-  const handleFollow = async () => {
-    if (!user || !currentReel || currentReel.user_id === user.id) return;
+  const handleFollow = async (reel: Reel) => {
+    if (!user || reel.user_id === user.id) return;
     try {
-      await supabase.from("follows").insert({ follower_id: user.id, following_id: currentReel.user_id });
+      await supabase.from("follows").insert({ follower_id: user.id, following_id: reel.user_id });
       await supabase.from("notifications").insert({
-        user_id: currentReel.user_id,
+        user_id: reel.user_id,
         type: "follow",
         from_user_id: user.id,
       });
-      // Send browser notification
       if (profile) sendFollowNotification(profile.username);
       toast({ title: "Following!" });
     } catch (error) {
@@ -210,13 +374,9 @@ const fetchLikedReels = async () => {
     }
   };
 
-  const goToProfile = () => {
-    if (currentReel?.profiles?.username) {
-      navigate(`/user/${currentReel.profiles.username}`);
-    }
+  const goToProfile = (username: string) => {
+    navigate(`/user/${username}`);
   };
-
-  const currentReel = reels[currentIndex];
 
   if (isLoading) {
     return (
@@ -242,126 +402,44 @@ const fetchLikedReels = async () => {
   }
 
   return (
-    <div className="min-h-screen bg-black relative overflow-hidden">
-      <div
-        className="absolute inset-0"
-        onClick={togglePlay}
-        onTouchStart={(e) => {
-          const startY = e.touches[0].clientY;
-          const handleTouchEnd = (endEvent: TouchEvent) => {
-            const endY = endEvent.changedTouches[0].clientY;
-            const diff = startY - endY;
-            if (diff > 50) handleScroll("down");
-            else if (diff < -50) handleScroll("up");
-            document.removeEventListener("touchend", handleTouchEnd);
-          };
-          document.addEventListener("touchend", handleTouchEnd);
-        }}
-      >
-        <div className="w-full h-full bg-gradient-to-b from-gray-900 to-black flex items-center justify-center">
-          <video
-            ref={videoRef}
-            src={currentReel.video_url}
-            className="w-full h-full object-cover"
-            loop
-            muted={isMuted}
-            autoPlay
-            playsInline
+    <div className="h-screen w-full bg-black relative overflow-hidden">
+      {/* Progress indicators */}
+      <div className="absolute top-4 left-4 right-4 flex gap-1 z-20">
+        {reels.map((_, index) => (
+          <div
+            key={index}
+            className={`h-1 flex-1 rounded-full transition-colors ${
+              index === currentIndex ? "bg-white" : "bg-white/30"
+            }`}
           />
-        </div>
-
-        {!isPlaying && (
-          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-            <div className="w-20 h-20 bg-black/50 rounded-full flex items-center justify-center">
-              <Play className="w-10 h-10 text-white" />
-            </div>
-          </div>
-        )}
-
-        <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-transparent to-black/60 pointer-events-none" />
-
-        {/* User info */}
-        <div className="absolute bottom-24 left-4 right-16">
-          <button onClick={goToProfile} className="flex items-center gap-3 mb-3">
-            <div className="w-10 h-10 rounded-full overflow-hidden border-2 border-white">
-              <img
-                src={currentReel.profiles?.profile_image || "https://images.unsplash.com/photo-1466781783364-36c955e42a7f?w=100"}
-                alt=""
-                className="w-full h-full object-cover"
-              />
-            </div>
-            <span className="text-white font-semibold">@{currentReel.profiles?.username}</span>
-          </button>
-          {user && currentReel.user_id !== user.id && (
-            <button
-              onClick={handleFollow}
-              className="px-4 py-1.5 border border-white rounded-full text-white text-sm mb-3"
-            >
-              Follow
-            </button>
-          )}
-          <p className="text-white text-sm">{currentReel.caption}</p>
-        </div>
-
-        {/* Side actions */}
-        <div className="absolute right-4 bottom-32 flex flex-col items-center gap-6">
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              handleLike();
-            }}
-            className="flex flex-col items-center active:scale-90 transition-transform"
-          >
-            <Heart
-              className={`w-8 h-8 ${likedReels.has(currentReel.id) ? "fill-red-500 text-red-500" : "text-white"}`}
-            />
-            <span className="text-white text-xs mt-1">{currentReel.likes_count}</span>
-          </button>
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              setCommentsOpen(true);
-            }}
-            className="flex flex-col items-center"
-          >
-            <MessageCircle className="w-8 h-8 text-white" />
-            <span className="text-white text-xs mt-1">0</span>
-          </button>
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              handleShare();
-            }}
-            className="flex flex-col items-center"
-          >
-            <Share2 className="w-8 h-8 text-white" />
-          </button>
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              handleSave();
-            }}
-            className="flex flex-col items-center"
-          >
-            <Bookmark
-              className={`w-8 h-8 ${savedReels.has(currentReel.id) ? "fill-white text-white" : "text-white"}`}
-            />
-          </button>
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              setIsMuted(!isMuted);
-            }}
-          >
-            {isMuted ? <VolumeX className="w-8 h-8 text-white" /> : <Volume2 className="w-8 h-8 text-white" />}
-          </button>
-        </div>
+        ))}
       </div>
 
-      {/* Progress indicators */}
-      <div className="absolute top-4 left-4 right-4 flex gap-1 z-10">
-        {reels.map((_, index) => (
-          <div key={index} className={`h-1 flex-1 rounded-full ${index === currentIndex ? "bg-white" : "bg-white/30"}`} />
+      {/* Scrollable reels container */}
+      <div
+        ref={containerRef}
+        className="h-screen w-full overflow-y-scroll snap-y snap-mandatory scrollbar-hide"
+        onScroll={handleScroll}
+        style={{ scrollSnapType: "y mandatory" }}
+      >
+        {reels.map((reel, index) => (
+          <ReelItem
+            key={reel.id}
+            reel={reel}
+            isActive={index === currentIndex}
+            isMuted={isMuted}
+            likedReels={likedReels}
+            savedReels={savedReels}
+            user={user}
+            profile={profile}
+            onLike={handleLike}
+            onSave={handleSave}
+            onShare={handleShare}
+            onFollow={handleFollow}
+            onToggleMute={() => setIsMuted(!isMuted)}
+            onOpenComments={() => setCommentsOpen(true)}
+            onGoToProfile={goToProfile}
+          />
         ))}
       </div>
 
