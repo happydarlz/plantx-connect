@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { MapPin, Loader2, Link as LinkIcon, Plus, Trash2 } from "lucide-react";
+import { MapPin, Loader2, Link as LinkIcon, Plus, Trash2, Navigation } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -27,11 +27,14 @@ const EditProfileSheet = ({ open, onOpenChange }: EditProfileSheetProps) => {
   const { profile, user, refreshProfile } = useAuth();
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
+  const [isGettingLocation, setIsGettingLocation] = useState(false);
 
   const [nurseryName, setNurseryName] = useState("");
   const [username, setUsername] = useState("");
   const [bio, setBio] = useState("");
   const [address, setAddress] = useState("");
+  const [latitude, setLatitude] = useState<number | null>(null);
+  const [longitude, setLongitude] = useState<number | null>(null);
   const [profileLinks, setProfileLinks] = useState<ProfileLink[]>([]);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
@@ -42,6 +45,8 @@ const EditProfileSheet = ({ open, onOpenChange }: EditProfileSheetProps) => {
       setUsername(profile.username || "");
       setBio(profile.bio || "");
       setAddress(profile.address || "");
+      setLatitude((profile as any).latitude || null);
+      setLongitude((profile as any).longitude || null);
       try {
         const links = (profile as any).profile_links || [];
         setProfileLinks(Array.isArray(links) ? links : []);
@@ -62,7 +67,70 @@ const EditProfileSheet = ({ open, onOpenChange }: EditProfileSheetProps) => {
     }
   };
 
-const addLink = () => {
+  const getCurrentLocation = () => {
+    if (!navigator.geolocation) {
+      toast({
+        title: "Geolocation not supported",
+        description: "Your browser doesn't support location services",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsGettingLocation(true);
+
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        const { latitude: lat, longitude: lng } = position.coords;
+        setLatitude(lat);
+        setLongitude(lng);
+
+        // Reverse geocode to get address
+        try {
+          const response = await fetch(
+            `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`
+          );
+          const data = await response.json();
+          if (data.display_name) {
+            setAddress(data.display_name);
+          }
+          toast({
+            title: "Location updated!",
+            description: "Your location has been automatically set",
+          });
+        } catch (error) {
+          console.error("Reverse geocoding error:", error);
+          setAddress(`${lat.toFixed(6)}, ${lng.toFixed(6)}`);
+        }
+
+        setIsGettingLocation(false);
+      },
+      (error) => {
+        console.error("Geolocation error:", error);
+        setIsGettingLocation(false);
+        let message = "Unable to get your location";
+        if (error.code === error.PERMISSION_DENIED) {
+          message = "Location permission denied. Please enable location access.";
+        } else if (error.code === error.POSITION_UNAVAILABLE) {
+          message = "Location information unavailable";
+        } else if (error.code === error.TIMEOUT) {
+          message = "Location request timed out";
+        }
+        toast({
+          title: "Location Error",
+          description: message,
+          variant: "destructive",
+        });
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 0,
+      }
+    );
+  };
+
+  const addLink = () => {
     setProfileLinks([...profileLinks, { title: "", url: "" }]);
   };
 
@@ -111,6 +179,8 @@ const addLink = () => {
           username: username.toLowerCase().replace(/\s/g, ""),
           bio,
           address,
+          latitude,
+          longitude,
           profile_image: profileImageUrl,
           profile_links: JSON.parse(JSON.stringify(profileLinks)),
         })
@@ -128,7 +198,7 @@ const addLink = () => {
     }
   };
 
-return (
+  return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="bottom" className="h-[90vh] rounded-t-3xl">
         <SheetHeader className="mb-4">
@@ -179,12 +249,41 @@ return (
             rows={3}
           />
 
-          {/* Address Section - Manual Entry Only */}
+          {/* Location Section with GPS */}
           <div className="space-y-3 p-4 bg-secondary rounded-xl">
             <div className="flex items-center gap-2 mb-2">
               <MapPin className="w-4 h-4 text-primary" />
-              <span className="font-medium text-sm">Address</span>
+              <span className="font-medium text-sm">Location</span>
             </div>
+            
+            <Button
+              type="button"
+              variant="outline"
+              onClick={getCurrentLocation}
+              disabled={isGettingLocation}
+              className="w-full h-11 rounded-xl flex items-center justify-center gap-2"
+            >
+              {isGettingLocation ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Detecting location...
+                </>
+              ) : (
+                <>
+                  <Navigation className="w-4 h-4" />
+                  Use my current location
+                </>
+              )}
+            </Button>
+
+            {latitude && longitude && (
+              <div className="p-2 bg-primary/10 rounded-lg flex items-center gap-2">
+                <MapPin className="w-4 h-4 text-primary" />
+                <span className="text-xs text-primary font-medium">
+                  GPS: {latitude.toFixed(4)}, {longitude.toFixed(4)}
+                </span>
+              </div>
+            )}
             
             <Input
               placeholder="Enter your address"
@@ -194,7 +293,7 @@ return (
             />
             
             <p className="text-xs text-muted-foreground">
-              Enter your nursery address so visitors can find you
+              Location helps customers find you on Google Maps
             </p>
           </div>
 
