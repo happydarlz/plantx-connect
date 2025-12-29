@@ -184,21 +184,16 @@ const PostCard = ({
               <p className="text-xs text-muted-foreground">@{username}</p>
             </div>
           </button>
-          <div className="flex items-center gap-1">
-            {user && userId !== user.id && (
-              <button
-                onClick={handleFollow}
-                className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all active:scale-95 ${
-                  isFollowing ? "bg-secondary text-muted-foreground" : "bg-primary text-primary-foreground"
-                }`}
-              >
-                {isFollowing ? "Following" : "Follow"}
-              </button>
-            )}
-            <button className="p-2 hover:bg-secondary rounded-full transition-colors">
-              <MoreHorizontal className="w-5 h-5 text-muted-foreground" />
+          {user && userId !== user.id && (
+            <button
+              onClick={handleFollow}
+              className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all active:scale-95 ${
+                isFollowing ? "bg-secondary text-muted-foreground" : "bg-primary text-primary-foreground"
+              }`}
+            >
+              {isFollowing ? "Following" : "Follow"}
             </button>
-          </div>
+          )}
         </div>
 
         {/* Image */}

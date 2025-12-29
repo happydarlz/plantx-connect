@@ -14,6 +14,7 @@ import Chat from "./pages/Chat";
 import Reels from "./pages/Reels";
 import Profile from "./pages/Profile";
 import UserProfile from "./pages/UserProfile";
+import PlantDetail from "./pages/PlantDetail";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -37,6 +38,7 @@ const App = () => (
                 <Route path="/reels" element={<Reels />} />
                 <Route path="/profile" element={<Profile />} />
                 <Route path="/user/:username" element={<UserProfile />} />
+                <Route path="/plant/:plantId" element={<PlantDetail />} />
                 <Route path="*" element={<NotFound />} />
               </Routes>
             </SwipeNavigation>

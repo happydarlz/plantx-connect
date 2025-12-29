@@ -185,6 +185,96 @@ export type Database = {
         }
         Relationships: []
       }
+      plant_comments: {
+        Row: {
+          content: string
+          created_at: string
+          id: string
+          plant_id: string
+          user_id: string
+        }
+        Insert: {
+          content: string
+          created_at?: string
+          id?: string
+          plant_id: string
+          user_id: string
+        }
+        Update: {
+          content?: string
+          created_at?: string
+          id?: string
+          plant_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "plant_comments_plant_id_fkey"
+            columns: ["plant_id"]
+            isOneToOne: false
+            referencedRelation: "plants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      plant_likes: {
+        Row: {
+          created_at: string
+          id: string
+          plant_id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          plant_id: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          plant_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "plant_likes_plant_id_fkey"
+            columns: ["plant_id"]
+            isOneToOne: false
+            referencedRelation: "plants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      plant_saves: {
+        Row: {
+          created_at: string
+          id: string
+          plant_id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          plant_id: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          plant_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "plant_saves_plant_id_fkey"
+            columns: ["plant_id"]
+            isOneToOne: false
+            referencedRelation: "plants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       plants: {
         Row: {
           created_at: string
