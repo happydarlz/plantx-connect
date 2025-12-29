@@ -109,61 +109,54 @@ const EditProfileSheet = ({ open, onOpenChange }: EditProfileSheetProps) => {
 
     setIsGettingLocation(true);
 
-    // Use watchPosition for more accurate GPS reading
-    let watchId: number;
-    let bestPosition: GeolocationPosition | null = null;
-    let attempts = 0;
-    const maxAttempts = 5;
-
-    const processPosition = async (position: GeolocationPosition) => {
-      attempts++;
-      
-      // Keep the best (most accurate) position
-      if (!bestPosition || position.coords.accuracy < bestPosition.coords.accuracy) {
-        bestPosition = position;
-      }
-
-      console.log(`Location attempt ${attempts}:`, {
-        lat: position.coords.latitude,
-        lng: position.coords.longitude,
-        accuracy: position.coords.accuracy
-      });
-
-      // Use position if accuracy is good enough (< 100m) or we've tried enough times
-      if (position.coords.accuracy < 100 || attempts >= maxAttempts) {
-        navigator.geolocation.clearWatch(watchId);
-        
-        const finalPosition = bestPosition!;
-        const { latitude: lat, longitude: lng, accuracy } = finalPosition.coords;
+    // Use getCurrentPosition first for quick response
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        const { latitude: lat, longitude: lng, accuracy } = position.coords;
+        console.log("Location obtained:", { lat, lng, accuracy });
         
         setLatitude(lat);
         setLongitude(lng);
 
-        const addr = await reverseGeocode(lat, lng);
-        setAddress(addr);
+        try {
+          const response = await fetch(
+            `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`,
+            { headers: { 'User-Agent': 'PlantX-App/1.0' } }
+          );
+          const data = await response.json();
+          
+          if (data.address) {
+            const parts = [];
+            const addr = data.address;
+            if (addr.neighbourhood || addr.suburb) parts.push(addr.neighbourhood || addr.suburb);
+            if (addr.village || addr.town || addr.city) parts.push(addr.village || addr.town || addr.city);
+            if (addr.state_district || addr.county) parts.push(addr.state_district || addr.county);
+            if (addr.state) parts.push(addr.state);
+            setAddress(parts.length > 0 ? parts.join(", ") : data.display_name);
+          } else {
+            setAddress(data.display_name || `${lat.toFixed(6)}, ${lng.toFixed(6)}`);
+          }
+        } catch {
+          setAddress(`${lat.toFixed(6)}, ${lng.toFixed(6)}`);
+        }
         
         toast({
           title: "Location updated!",
           description: `Accuracy: ${Math.round(accuracy)}m`,
         });
         setIsGettingLocation(false);
-      }
-    };
-
-    watchId = navigator.geolocation.watchPosition(
-      processPosition,
+      },
       (error) => {
-        navigator.geolocation.clearWatch(watchId);
         console.error("Geolocation error:", error);
         setIsGettingLocation(false);
         
         let message = "Unable to get your location";
         if (error.code === error.PERMISSION_DENIED) {
-          message = "Location permission denied. Please enable location access.";
+          message = "Please allow location access in your browser settings";
         } else if (error.code === error.POSITION_UNAVAILABLE) {
-          message = "Location information unavailable.";
+          message = "Location unavailable. Make sure GPS is enabled.";
         } else if (error.code === error.TIMEOUT) {
-          message = "Location request timed out. Please try again.";
+          message = "Location request timed out. Try moving to an open area.";
         }
         
         toast({
@@ -173,19 +166,11 @@ const EditProfileSheet = ({ open, onOpenChange }: EditProfileSheetProps) => {
         });
       },
       {
-        enableHighAccuracy: true,
-        timeout: 15000,
-        maximumAge: 0, // Don't use cached position
+        enableHighAccuracy: false, // Use low accuracy for faster response
+        timeout: 5000, // Short timeout
+        maximumAge: 60000, // Allow cached position up to 1 minute old
       }
     );
-
-    // Timeout fallback - use best position we have after 10 seconds
-    setTimeout(() => {
-      if (isGettingLocation && bestPosition) {
-        navigator.geolocation.clearWatch(watchId);
-        processPosition(bestPosition);
-      }
-    }, 10000);
   };
 
   const addLink = () => {
