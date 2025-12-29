@@ -181,17 +181,28 @@ const UserProfileCard = ({ userId, username }: UserProfileCardProps) => {
     }
 
     // Create new chat
-    const { data: newChat, error: chatError } = await supabase.from("chats").insert({}).select().single();
+    const { data: newChat, error: chatError } = await supabase
+      .from("chats")
+      .insert({})
+      .select()
+      .single();
 
     if (chatError) {
-      toast({ title: "Error creating chat", variant: "destructive" });
+      console.error("Chat creation error:", chatError);
+      toast({ title: "Error creating chat", description: chatError.message, variant: "destructive" });
       return;
     }
 
-    await supabase.from("chat_participants").insert([
+    const { error: participantError } = await supabase.from("chat_participants").insert([
       { chat_id: newChat.id, user_id: user.id },
       { chat_id: newChat.id, user_id: userId },
     ]);
+
+    if (participantError) {
+      console.error("Participant error:", participantError);
+      toast({ title: "Error setting up chat", variant: "destructive" });
+      return;
+    }
 
     navigate("/chat");
   };

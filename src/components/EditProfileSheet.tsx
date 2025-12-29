@@ -123,9 +123,9 @@ const EditProfileSheet = ({ open, onOpenChange }: EditProfileSheetProps) => {
         });
       },
       {
-        enableHighAccuracy: true,
-        timeout: 10000,
-        maximumAge: 0,
+        enableHighAccuracy: false,
+        timeout: 30000,
+        maximumAge: 60000,
       }
     );
   };
