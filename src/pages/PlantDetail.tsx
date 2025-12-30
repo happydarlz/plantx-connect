@@ -280,62 +280,14 @@ const PlantDetail = () => {
     }
   };
 
-  const startChat = async () => {
-    if (!user || !plant) {
-      toast({ title: "Please sign in", variant: "destructive" });
-      return;
-    }
-
-    if (plant.user_id === user.id) return;
-
-    try {
-      // Check if chat already exists
-      const { data: myChats } = await supabase
-        .from("chat_participants")
-        .select("chat_id")
-        .eq("user_id", user.id);
-
-      if (myChats) {
-        for (const chat of myChats) {
-          const { data: otherParticipant } = await supabase
-            .from("chat_participants")
-            .select("user_id")
-            .eq("chat_id", chat.chat_id)
-            .eq("user_id", plant.user_id)
-            .maybeSingle();
-
-          if (otherParticipant) {
-            navigate("/chat");
-            return;
-          }
-        }
+  const handleCall = () => {
+    if (profile) {
+      const phoneNumber = (profile as any).phone_number;
+      if (phoneNumber) {
+        window.location.href = `tel:${phoneNumber}`;
+      } else {
+        toast({ title: "No phone number available", variant: "destructive" });
       }
-
-      // Create new chat
-      const { data: newChat, error: chatError } = await supabase.from("chats").insert({}).select().single();
-      
-      if (chatError) {
-        console.error("Chat creation error:", chatError);
-        toast({ title: "Error creating chat", description: chatError.message, variant: "destructive" });
-        return;
-      }
-      
-      if (newChat) {
-        const { error: participantError } = await supabase.from("chat_participants").insert([
-          { chat_id: newChat.id, user_id: user.id },
-          { chat_id: newChat.id, user_id: plant.user_id },
-        ]);
-        
-        if (participantError) {
-          console.error("Participant error:", participantError);
-          toast({ title: "Error setting up chat", variant: "destructive" });
-          return;
-        }
-        
-        navigate("/chat");
-      }
-    } catch (error) {
-      console.error("Chat error:", error);
     }
   };
 

@@ -15,6 +15,12 @@ import Profile from "./pages/Profile";
 import UserProfile from "./pages/UserProfile";
 import PlantDetail from "./pages/PlantDetail";
 import PrivacyPolicy from "./pages/PrivacyPolicy";
+import SavedPosts from "./pages/SavedPosts";
+import LikedPosts from "./pages/LikedPosts";
+import ActivityPage from "./pages/ActivityPage";
+import HelpPage from "./pages/HelpPage";
+import AboutPage from "./pages/AboutPage";
+import AccountSettings from "./pages/AccountSettings";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -39,6 +45,12 @@ const App = () => (
                 <Route path="/user/:username" element={<UserProfile />} />
                 <Route path="/plant/:plantId" element={<PlantDetail />} />
                 <Route path="/privacy" element={<PrivacyPolicy />} />
+                <Route path="/saved" element={<SavedPosts />} />
+                <Route path="/liked" element={<LikedPosts />} />
+                <Route path="/activity" element={<ActivityPage />} />
+                <Route path="/help" element={<HelpPage />} />
+                <Route path="/about" element={<AboutPage />} />
+                <Route path="/account" element={<AccountSettings />} />
                 <Route path="*" element={<NotFound />} />
               </Routes>
             </SwipeNavigation>
