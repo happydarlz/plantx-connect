@@ -1,11 +1,18 @@
 import { useState, useEffect } from "react";
-import { Settings, Share2, MapPin, Grid3X3, Leaf, Film, Bookmark, Link as LinkIcon, Trash2 } from "lucide-react";
+import { Settings, Share2, MapPin, Grid3X3, Leaf, Film, Bookmark, Link as LinkIcon, Trash2, MoreVertical, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import BottomNav from "@/components/BottomNav";
 import EditProfileSheet from "@/components/EditProfileSheet";
 import SettingsSheet from "@/components/SettingsSheet";
 import DeleteConfirmDialog from "@/components/DeleteConfirmDialog";
 import FollowersSheet from "@/components/FollowersSheet";
+import ContentDetailSheet from "@/components/ContentDetailSheet";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { useNavigate } from "react-router-dom";
@@ -88,6 +95,11 @@ const Profile = () => {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<{ type: "post" | "plant" | "reel"; id: string; urls?: string[] } | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  
+  // Content detail/edit state
+  const [detailSheetOpen, setDetailSheetOpen] = useState(false);
+  const [selectedContent, setSelectedContent] = useState<{ type: "post" | "plant" | "reel"; id: string } | null>(null);
+  const [isEditingContent, setIsEditingContent] = useState(false);
 
   useEffect(() => {
     if (!user) {
@@ -240,6 +252,32 @@ const Profile = () => {
     }
   };
 
+  const handleContentClick = (type: "post" | "plant" | "reel", id: string) => {
+    setSelectedContent({ type, id });
+    setIsEditingContent(false);
+    setDetailSheetOpen(true);
+  };
+
+  const handleEditClick = (type: "post" | "plant" | "reel", id: string) => {
+    setSelectedContent({ type, id });
+    setIsEditingContent(true);
+    setDetailSheetOpen(true);
+  };
+
+  const handleShareToStory = async (imageUrl: string) => {
+    if (!user) return;
+    
+    try {
+      await supabase.from("stories").insert({
+        user_id: user.id,
+        image_url: imageUrl,
+      });
+      toast({ title: "Shared to your story!" });
+    } catch (error) {
+      toast({ title: "Error sharing to story", variant: "destructive" });
+    }
+  };
+
   const renderContent = () => {
     if (isLoading) {
       return (
@@ -260,14 +298,39 @@ const Profile = () => {
       return (
         <div className="grid grid-cols-3 gap-0.5">
           {posts.map((post) => (
-            <div key={post.id} className="aspect-square bg-secondary relative overflow-hidden group">
+            <div 
+              key={post.id} 
+              className="aspect-square bg-secondary relative overflow-hidden group cursor-pointer"
+              onClick={() => handleContentClick("post", post.id)}
+            >
               <img src={post.image_url} alt="" className="w-full h-full object-cover" />
-              <button
-                onClick={() => handleDeleteClick("post", post.id, post.image_urls || [post.image_url])}
-                className="absolute top-2 right-2 p-2 bg-destructive/90 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
-              >
-                <Trash2 className="w-4 h-4 text-destructive-foreground" />
-              </button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button 
+                    onClick={(e) => e.stopPropagation()}
+                    className="absolute top-2 right-2 p-1.5 bg-background/80 backdrop-blur-sm rounded-full opacity-0 group-hover:opacity-100 transition-opacity z-10"
+                  >
+                    <MoreVertical className="w-4 h-4 text-foreground" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-44">
+                  <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleEditClick("post", post.id); }} className="gap-2">
+                    <Pencil className="w-4 h-4" />
+                    Edit Post
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleShareToStory(post.image_url); }} className="gap-2">
+                    <Share2 className="w-4 h-4" />
+                    Share to Story
+                  </DropdownMenuItem>
+                  <DropdownMenuItem 
+                    onClick={(e) => { e.stopPropagation(); handleDeleteClick("post", post.id, post.image_urls || [post.image_url]); }} 
+                    className="gap-2 text-destructive"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    Delete
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           ))}
         </div>
@@ -285,7 +348,11 @@ const Profile = () => {
       return (
         <div className="grid grid-cols-3 gap-0.5">
           {plants.map((plant) => (
-            <div key={plant.id} className="aspect-square bg-secondary relative overflow-hidden group">
+            <div 
+              key={plant.id} 
+              className="aspect-square bg-secondary relative overflow-hidden group cursor-pointer"
+              onClick={() => handleContentClick("plant", plant.id)}
+            >
               {plant.image_url ? (
                 <img src={plant.image_url} alt={plant.name} className="w-full h-full object-cover" />
               ) : (
@@ -293,12 +360,35 @@ const Profile = () => {
                   <Leaf className="w-8 h-8 text-muted-foreground" />
                 </div>
               )}
-              <button
-                onClick={() => handleDeleteClick("plant", plant.id, plant.image_urls || (plant.image_url ? [plant.image_url] : []))}
-                className="absolute top-2 right-2 p-2 bg-destructive/90 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
-              >
-                <Trash2 className="w-4 h-4 text-destructive-foreground" />
-              </button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button 
+                    onClick={(e) => e.stopPropagation()}
+                    className="absolute top-2 right-2 p-1.5 bg-background/80 backdrop-blur-sm rounded-full opacity-0 group-hover:opacity-100 transition-opacity z-10"
+                  >
+                    <MoreVertical className="w-4 h-4 text-foreground" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-44">
+                  <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleEditClick("plant", plant.id); }} className="gap-2">
+                    <Pencil className="w-4 h-4" />
+                    Edit Plant
+                  </DropdownMenuItem>
+                  {plant.image_url && (
+                    <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleShareToStory(plant.image_url!); }} className="gap-2">
+                      <Share2 className="w-4 h-4" />
+                      Share to Story
+                    </DropdownMenuItem>
+                  )}
+                  <DropdownMenuItem 
+                    onClick={(e) => { e.stopPropagation(); handleDeleteClick("plant", plant.id, plant.image_urls || (plant.image_url ? [plant.image_url] : [])); }} 
+                    className="gap-2 text-destructive"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    Delete
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           ))}
         </div>
@@ -316,17 +406,38 @@ const Profile = () => {
       return (
         <div className="grid grid-cols-3 gap-0.5">
           {reels.map((reel) => (
-            <div key={reel.id} className="aspect-[9/16] bg-secondary relative overflow-hidden group">
+            <div 
+              key={reel.id} 
+              className="aspect-[9/16] bg-secondary relative overflow-hidden group cursor-pointer"
+              onClick={() => handleContentClick("reel", reel.id)}
+            >
               <video src={reel.video_url} className="w-full h-full object-cover" muted />
-              <div className="absolute inset-0 flex items-center justify-center bg-black/20">
+              <div className="absolute inset-0 flex items-center justify-center bg-black/20 pointer-events-none">
                 <Film className="w-6 h-6 text-white" />
               </div>
-              <button
-                onClick={() => handleDeleteClick("reel", reel.id, [reel.video_url])}
-                className="absolute top-2 right-2 p-2 bg-destructive/90 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
-              >
-                <Trash2 className="w-4 h-4 text-destructive-foreground" />
-              </button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button 
+                    onClick={(e) => e.stopPropagation()}
+                    className="absolute top-2 right-2 p-1.5 bg-background/80 backdrop-blur-sm rounded-full opacity-0 group-hover:opacity-100 transition-opacity z-10"
+                  >
+                    <MoreVertical className="w-4 h-4 text-foreground" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-44">
+                  <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleEditClick("reel", reel.id); }} className="gap-2">
+                    <Pencil className="w-4 h-4" />
+                    Edit Reel
+                  </DropdownMenuItem>
+                  <DropdownMenuItem 
+                    onClick={(e) => { e.stopPropagation(); handleDeleteClick("reel", reel.id, [reel.video_url]); }} 
+                    className="gap-2 text-destructive"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    Delete
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           ))}
         </div>
@@ -557,6 +668,16 @@ const Profile = () => {
         description="This action cannot be undone. This will permanently delete your content from our servers including all associated likes, comments, and saves."
         isLoading={isDeleting}
       />
+      {selectedContent && (
+        <ContentDetailSheet
+          open={detailSheetOpen}
+          onOpenChange={setDetailSheetOpen}
+          contentType={selectedContent.type}
+          contentId={selectedContent.id}
+          isEditing={isEditingContent}
+          onUpdate={fetchData}
+        />
+      )}
       <BottomNav />
     </div>
   );
