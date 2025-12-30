@@ -1,9 +1,10 @@
 import { useState, useEffect } from "react";
-import { Settings, Share2, MapPin, Grid3X3, Leaf, Film, Bookmark, Link as LinkIcon } from "lucide-react";
+import { Settings, Share2, MapPin, Grid3X3, Leaf, Film, Bookmark, Link as LinkIcon, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import BottomNav from "@/components/BottomNav";
 import EditProfileSheet from "@/components/EditProfileSheet";
 import SettingsSheet from "@/components/SettingsSheet";
+import DeleteConfirmDialog from "@/components/DeleteConfirmDialog";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { useNavigate } from "react-router-dom";
@@ -25,11 +26,13 @@ interface Stats {
 interface Post {
   id: string;
   image_url: string;
+  image_urls?: string[] | null;
 }
 
 interface Plant {
   id: string;
   image_url: string | null;
+  image_urls?: string[] | null;
   name: string;
 }
 
@@ -72,11 +75,16 @@ const Profile = () => {
   const [posts, setPosts] = useState<Post[]>([]);
   const [plants, setPlants] = useState<Plant[]>([]);
   const [reels, setReels] = useState<Reel[]>([]);
-const [savedPosts, setSavedPosts] = useState<SavedPost[]>([]);
+  const [savedPosts, setSavedPosts] = useState<SavedPost[]>([]);
   const [savedReels, setSavedReels] = useState<SavedReel[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [editProfileOpen, setEditProfileOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  
+  // Delete state
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<{ type: "post" | "plant" | "reel"; id: string; urls?: string[] } | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   useEffect(() => {
     if (!user) {
@@ -90,9 +98,9 @@ const [savedPosts, setSavedPosts] = useState<SavedPost[]>([]);
     if (!user) return;
 
     try {
-const [postsResult, plantsResult, reelsResult, savedPostsResult, savedReelsResult, followersResult, followingResult] = await Promise.all([
-        supabase.from("posts").select("id, image_url", { count: "exact" }).eq("user_id", user.id).order("created_at", { ascending: false }),
-        supabase.from("plants").select("id, image_url, name").eq("user_id", user.id).order("created_at", { ascending: false }),
+      const [postsResult, plantsResult, reelsResult, savedPostsResult, savedReelsResult, followersResult, followingResult] = await Promise.all([
+        supabase.from("posts").select("id, image_url, image_urls", { count: "exact" }).eq("user_id", user.id).order("created_at", { ascending: false }),
+        supabase.from("plants").select("id, image_url, image_urls, name").eq("user_id", user.id).order("created_at", { ascending: false }),
         supabase.from("reels").select("id, video_url, caption").eq("user_id", user.id).order("created_at", { ascending: false }),
         supabase.from("post_saves").select("id, post_id").eq("user_id", user.id).order("created_at", { ascending: false }),
         supabase.from("reel_saves").select("id, reel_id").eq("user_id", user.id).order("created_at", { ascending: false }),
@@ -104,7 +112,7 @@ const [postsResult, plantsResult, reelsResult, savedPostsResult, savedReelsResul
       setPlants(plantsResult.data || []);
       setReels(reelsResult.data || []);
 
-// Fetch saved posts details
+      // Fetch saved posts details
       if (savedPostsResult.data && savedPostsResult.data.length > 0) {
         const postIds = savedPostsResult.data.map((s) => s.post_id);
         const { data: savedPostsData } = await supabase
@@ -159,6 +167,76 @@ const [postsResult, plantsResult, reelsResult, savedPostsResult, savedReelsResul
     }
   };
 
+  const extractFilePathFromUrl = (url: string): string | null => {
+    try {
+      const urlObj = new URL(url);
+      const pathParts = urlObj.pathname.split("/storage/v1/object/public/uploads/");
+      if (pathParts.length > 1) {
+        return pathParts[1];
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  };
+
+  const handleDeleteClick = (type: "post" | "plant" | "reel", id: string, urls?: string[]) => {
+    setDeleteTarget({ type, id, urls });
+    setDeleteDialogOpen(true);
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!deleteTarget) return;
+    
+    setIsDeleting(true);
+    try {
+      const { type, id, urls } = deleteTarget;
+      
+      // Delete files from storage
+      if (urls && urls.length > 0) {
+        const filePaths = urls
+          .map(extractFilePathFromUrl)
+          .filter((path): path is string => path !== null);
+        
+        if (filePaths.length > 0) {
+          await supabase.storage.from("uploads").remove(filePaths);
+        }
+      }
+      
+      // Delete from database based on type
+      if (type === "post") {
+        // Delete related data first
+        await supabase.from("post_likes").delete().eq("post_id", id);
+        await supabase.from("post_saves").delete().eq("post_id", id);
+        await supabase.from("comments").delete().eq("post_id", id);
+        await supabase.from("posts").delete().eq("id", id);
+        setPosts((prev) => prev.filter((p) => p.id !== id));
+      } else if (type === "plant") {
+        await supabase.from("plant_likes").delete().eq("plant_id", id);
+        await supabase.from("plant_saves").delete().eq("plant_id", id);
+        await supabase.from("plant_comments").delete().eq("plant_id", id);
+        await supabase.from("plants").delete().eq("id", id);
+        setPlants((prev) => prev.filter((p) => p.id !== id));
+      } else if (type === "reel") {
+        await supabase.from("reel_likes").delete().eq("reel_id", id);
+        await supabase.from("reel_saves").delete().eq("reel_id", id);
+        await supabase.from("reel_comments").delete().eq("reel_id", id);
+        await supabase.from("reels").delete().eq("id", id);
+        setReels((prev) => prev.filter((r) => r.id !== id));
+      }
+      
+      toast({ title: `${type.charAt(0).toUpperCase() + type.slice(1)} deleted successfully` });
+      setStats((prev) => ({ ...prev, postsCount: prev.postsCount - (type === "post" ? 1 : 0) }));
+    } catch (error) {
+      console.error("Error deleting:", error);
+      toast({ title: "Error deleting", description: "Please try again", variant: "destructive" });
+    } finally {
+      setIsDeleting(false);
+      setDeleteDialogOpen(false);
+      setDeleteTarget(null);
+    }
+  };
+
   const renderContent = () => {
     if (isLoading) {
       return (
@@ -179,9 +257,15 @@ const [postsResult, plantsResult, reelsResult, savedPostsResult, savedReelsResul
       return (
         <div className="grid grid-cols-3 gap-0.5">
           {posts.map((post) => (
-            <button key={post.id} className="aspect-square bg-secondary relative overflow-hidden">
+            <div key={post.id} className="aspect-square bg-secondary relative overflow-hidden group">
               <img src={post.image_url} alt="" className="w-full h-full object-cover" />
-            </button>
+              <button
+                onClick={() => handleDeleteClick("post", post.id, post.image_urls || [post.image_url])}
+                className="absolute top-2 right-2 p-2 bg-destructive/90 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+              >
+                <Trash2 className="w-4 h-4 text-destructive-foreground" />
+              </button>
+            </div>
           ))}
         </div>
       );
@@ -198,7 +282,7 @@ const [postsResult, plantsResult, reelsResult, savedPostsResult, savedReelsResul
       return (
         <div className="grid grid-cols-3 gap-0.5">
           {plants.map((plant) => (
-            <button key={plant.id} className="aspect-square bg-secondary relative overflow-hidden">
+            <div key={plant.id} className="aspect-square bg-secondary relative overflow-hidden group">
               {plant.image_url ? (
                 <img src={plant.image_url} alt={plant.name} className="w-full h-full object-cover" />
               ) : (
@@ -206,7 +290,13 @@ const [postsResult, plantsResult, reelsResult, savedPostsResult, savedReelsResul
                   <Leaf className="w-8 h-8 text-muted-foreground" />
                 </div>
               )}
-            </button>
+              <button
+                onClick={() => handleDeleteClick("plant", plant.id, plant.image_urls || (plant.image_url ? [plant.image_url] : []))}
+                className="absolute top-2 right-2 p-2 bg-destructive/90 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+              >
+                <Trash2 className="w-4 h-4 text-destructive-foreground" />
+              </button>
+            </div>
           ))}
         </div>
       );
@@ -223,12 +313,18 @@ const [postsResult, plantsResult, reelsResult, savedPostsResult, savedReelsResul
       return (
         <div className="grid grid-cols-3 gap-0.5">
           {reels.map((reel) => (
-            <button key={reel.id} className="aspect-[9/16] bg-secondary relative overflow-hidden">
+            <div key={reel.id} className="aspect-[9/16] bg-secondary relative overflow-hidden group">
               <video src={reel.video_url} className="w-full h-full object-cover" muted />
               <div className="absolute inset-0 flex items-center justify-center bg-black/20">
                 <Film className="w-6 h-6 text-white" />
               </div>
-            </button>
+              <button
+                onClick={() => handleDeleteClick("reel", reel.id, [reel.video_url])}
+                className="absolute top-2 right-2 p-2 bg-destructive/90 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+              >
+                <Trash2 className="w-4 h-4 text-destructive-foreground" />
+              </button>
+            </div>
           ))}
         </div>
       );
@@ -347,14 +443,12 @@ const [postsResult, plantsResult, reelsResult, savedPostsResult, savedReelsResul
       {/* Profile Info */}
       <section className="px-4 py-6">
         <div className="flex items-start gap-4">
-          <div className="story-ring rounded-full">
-            <div className="w-20 h-20 rounded-full bg-background p-0.5">
-              <img
-                src={profile.profile_image || "https://images.unsplash.com/photo-1466781783364-36c955e42a7f?w=200&h=200&fit=crop"}
-                alt={profile.nursery_name}
-                className="w-full h-full rounded-full object-cover"
-              />
-            </div>
+          <div className="w-20 h-20 rounded-full overflow-hidden border-2 border-primary">
+            <img
+              src={profile.profile_image || "https://images.unsplash.com/photo-1466781783364-36c955e42a7f?w=200&h=200&fit=crop"}
+              alt={profile.nursery_name}
+              className="w-full h-full object-cover"
+            />
           </div>
 
           <div className="flex-1 grid grid-cols-3 gap-2 text-center">
@@ -378,10 +472,10 @@ const [postsResult, plantsResult, reelsResult, savedPostsResult, savedReelsResul
           <h2 className="font-semibold text-foreground">{profile.nursery_name}</h2>
           {profile.bio && <p className="text-sm text-foreground mt-1">{profile.bio}</p>}
           {profile.address && (
-            <button className="flex items-center gap-1 text-sm text-primary mt-2">
+            <div className="flex items-center gap-1 text-sm text-muted-foreground mt-2">
               <MapPin className="w-4 h-4" />
               {profile.address}
-            </button>
+            </div>
           )}
           
           {/* Profile Links */}
@@ -446,6 +540,14 @@ const [postsResult, plantsResult, reelsResult, savedPostsResult, savedReelsResul
 
       <EditProfileSheet open={editProfileOpen} onOpenChange={setEditProfileOpen} />
       <SettingsSheet open={settingsOpen} onOpenChange={setSettingsOpen} />
+      <DeleteConfirmDialog
+        open={deleteDialogOpen}
+        onOpenChange={setDeleteDialogOpen}
+        onConfirm={handleDeleteConfirm}
+        title={`Delete ${deleteTarget?.type || "content"}?`}
+        description="This action cannot be undone. This will permanently delete your content from our servers including all associated likes, comments, and saves."
+        isLoading={isDeleting}
+      />
       <BottomNav />
     </div>
   );
