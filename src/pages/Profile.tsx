@@ -5,6 +5,7 @@ import BottomNav from "@/components/BottomNav";
 import EditProfileSheet from "@/components/EditProfileSheet";
 import SettingsSheet from "@/components/SettingsSheet";
 import DeleteConfirmDialog from "@/components/DeleteConfirmDialog";
+import FollowersSheet from "@/components/FollowersSheet";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { useNavigate } from "react-router-dom";
@@ -80,6 +81,8 @@ const Profile = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [editProfileOpen, setEditProfileOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [followersSheetOpen, setFollowersSheetOpen] = useState(false);
+  const [followersSheetType, setFollowersSheetType] = useState<"followers" | "following">("followers");
   
   // Delete state
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -456,14 +459,14 @@ const Profile = () => {
               <p className="font-semibold text-foreground">{stats.postsCount}</p>
               <p className="text-xs text-muted-foreground">Posts</p>
             </div>
-            <div>
+            <button onClick={() => { setFollowersSheetType("followers"); setFollowersSheetOpen(true); }}>
               <p className="font-semibold text-foreground">{formatNumber(stats.followers)}</p>
               <p className="text-xs text-muted-foreground">Followers</p>
-            </div>
-            <div>
+            </button>
+            <button onClick={() => { setFollowersSheetType("following"); setFollowersSheetOpen(true); }}>
               <p className="font-semibold text-foreground">{formatNumber(stats.following)}</p>
               <p className="text-xs text-muted-foreground">Following</p>
-            </div>
+            </button>
           </div>
         </div>
 
@@ -540,6 +543,12 @@ const Profile = () => {
 
       <EditProfileSheet open={editProfileOpen} onOpenChange={setEditProfileOpen} />
       <SettingsSheet open={settingsOpen} onOpenChange={setSettingsOpen} />
+      <FollowersSheet 
+        open={followersSheetOpen} 
+        onOpenChange={setFollowersSheetOpen} 
+        userId={user?.id || ""} 
+        type={followersSheetType} 
+      />
       <DeleteConfirmDialog
         open={deleteDialogOpen}
         onOpenChange={setDeleteDialogOpen}

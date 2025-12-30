@@ -1,11 +1,12 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Camera, MapPin, ArrowRight, ArrowLeft, Check, Loader2, Phone } from "lucide-react";
+import { Camera, MapPin, ArrowRight, ArrowLeft, Check, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import PlantXLogo from "@/components/PlantXLogo";
+import PhoneInput from "@/components/PhoneInput";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
@@ -333,16 +334,11 @@ const Onboarding = () => {
                 <label className="text-sm font-medium text-foreground mb-2 block">
                   Phone Number *
                 </label>
-                <div className="relative">
-                  <Phone className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
-                  <Input
-                    type="tel"
-                    placeholder="+91 XXXXXXXXXX"
-                    value={phoneNumber}
-                    onChange={(e) => setPhoneNumber(e.target.value)}
-                    className="h-12 rounded-xl pl-12"
-                  />
-                </div>
+                <PhoneInput
+                  value={phoneNumber}
+                  onChange={setPhoneNumber}
+                  placeholder="Phone number"
+                />
                 <p className="text-xs text-muted-foreground mt-1">Others can contact you via this number</p>
               </div>
               <div>

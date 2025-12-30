@@ -1,8 +1,9 @@
 import { useState, useEffect } from "react";
-import { MapPin, Loader2, Link as LinkIcon, Plus, Trash2, Phone } from "lucide-react";
+import { MapPin, Loader2, Link as LinkIcon, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import PhoneInput from "@/components/PhoneInput";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
@@ -181,14 +182,12 @@ const EditProfileSheet = ({ open, onOpenChange }: EditProfileSheetProps) => {
             className="h-12 rounded-xl"
           />
 
-          <div className="relative">
-            <Phone className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
-            <Input
-              type="tel"
-              placeholder="Phone Number *"
+          <div className="space-y-1.5">
+            <label className="text-sm font-medium text-foreground">Phone Number *</label>
+            <PhoneInput
               value={phoneNumber}
-              onChange={(e) => setPhoneNumber(e.target.value)}
-              className="h-12 rounded-xl pl-12"
+              onChange={setPhoneNumber}
+              placeholder="Phone number"
             />
           </div>
 

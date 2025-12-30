@@ -15,6 +15,9 @@ import Profile from "./pages/Profile";
 import UserProfile from "./pages/UserProfile";
 import PlantDetail from "./pages/PlantDetail";
 import PrivacyPolicy from "./pages/PrivacyPolicy";
+import TermsPage from "./pages/TermsPage";
+import LicensesPage from "./pages/LicensesPage";
+import FAQPage from "./pages/FAQPage";
 import SavedPosts from "./pages/SavedPosts";
 import LikedPosts from "./pages/LikedPosts";
 import ActivityPage from "./pages/ActivityPage";
@@ -45,6 +48,9 @@ const App = () => (
                 <Route path="/user/:username" element={<UserProfile />} />
                 <Route path="/plant/:plantId" element={<PlantDetail />} />
                 <Route path="/privacy" element={<PrivacyPolicy />} />
+                <Route path="/terms" element={<TermsPage />} />
+                <Route path="/licenses" element={<LicensesPage />} />
+                <Route path="/faq" element={<FAQPage />} />
                 <Route path="/saved" element={<SavedPosts />} />
                 <Route path="/liked" element={<LikedPosts />} />
                 <Route path="/activity" element={<ActivityPage />} />

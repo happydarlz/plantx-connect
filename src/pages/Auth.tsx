@@ -1,11 +1,12 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { Mail, Lock, Eye, EyeOff, ArrowRight, Leaf, Phone, User } from "lucide-react";
+import { Mail, Lock, Eye, EyeOff, ArrowRight, Leaf } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import PlantXLogo from "@/components/PlantXLogo";
+import PhoneInput from "@/components/PhoneInput";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -194,15 +195,13 @@ const Auth = () => {
 
           {mode === "signup" && (
             <>
-              <div className="relative">
-                <Phone className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
-                <Input
-                  type="tel"
-                  placeholder="Phone number *"
+              <div>
+                <Label className="text-xs text-muted-foreground mb-1.5 block">Phone Number *</Label>
+                <PhoneInput
                   value={phoneNumber}
-                  onChange={(e) => setPhoneNumber(e.target.value)}
-                  className="pl-12 h-12 rounded-xl border-border bg-secondary/50"
+                  onChange={setPhoneNumber}
                   disabled={isLoading}
+                  placeholder="Phone number"
                 />
               </div>
 
