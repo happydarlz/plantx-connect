@@ -75,37 +75,38 @@ const AccountSettings = () => {
 
       <div className="p-4 space-y-4">
         <div className="p-4 bg-card rounded-xl border border-border">
-          <h2 className="font-medium text-foreground mb-2">Account Information</h2>
-          <div className="space-y-2 text-sm">
-            <div className="flex justify-between">
+          <h2 className="font-medium text-foreground mb-3">Account Information</h2>
+          <div className="space-y-3 text-sm">
+            <div className="flex justify-between items-center">
               <span className="text-muted-foreground">Email</span>
-              <span className="text-foreground">{user?.email}</span>
+              <span className="text-foreground text-right truncate max-w-[180px]">{user?.email}</span>
             </div>
-            <div className="flex justify-between">
+            <div className="flex justify-between items-center">
               <span className="text-muted-foreground">Username</span>
               <span className="text-foreground">@{profile?.username}</span>
             </div>
-            <div className="flex justify-between">
+            <div className="flex justify-between items-center">
               <span className="text-muted-foreground">Account Type</span>
               <span className="text-foreground capitalize">{(profile as any)?.user_type || "Normal"}</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-muted-foreground">Phone</span>
+              <span className="text-foreground">{(profile as any)?.phone_number || "Not set"}</span>
             </div>
           </div>
         </div>
 
-        <div className="p-4 bg-destructive/10 rounded-xl border border-destructive/20">
-          <h2 className="font-medium text-destructive mb-2">Danger Zone</h2>
-          <p className="text-sm text-muted-foreground mb-4">
-            Once you delete your account, there is no going back. Please be certain.
-          </p>
-          <Button
-            variant="destructive"
-            onClick={() => setDeleteDialogOpen(true)}
-            className="w-full"
-          >
-            <Trash2 className="w-4 h-4 mr-2" />
-            Delete Account
-          </Button>
-        </div>
+        <Button
+          variant="destructive"
+          onClick={() => setDeleteDialogOpen(true)}
+          className="w-full rounded-xl"
+        >
+          <Trash2 className="w-4 h-4 mr-2" />
+          Delete Account
+        </Button>
+        <p className="text-xs text-muted-foreground text-center">
+          This action is permanent and cannot be undone.
+        </p>
       </div>
 
       <DeleteConfirmDialog

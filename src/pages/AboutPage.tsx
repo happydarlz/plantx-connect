@@ -40,12 +40,14 @@ const AboutPage = () => {
             <Info className="w-5 h-5 text-muted-foreground" />
           </button>
           <button
+            onClick={() => navigate("/terms")}
             className="w-full p-4 bg-card rounded-xl border border-border flex items-center justify-between"
           >
             <span className="text-foreground">Terms of Service</span>
             <Info className="w-5 h-5 text-muted-foreground" />
           </button>
           <button
+            onClick={() => navigate("/licenses")}
             className="w-full p-4 bg-card rounded-xl border border-border flex items-center justify-between"
           >
             <span className="text-foreground">Licenses</span>
@@ -58,7 +60,7 @@ const AboutPage = () => {
             <Leaf className="w-4 h-4" />
             <span>Made with love by Finitix</span>
           </div>
-          <p className="text-xs text-muted-foreground mt-2">© 2024 PlantX. All rights reserved.</p>
+          <p className="text-xs text-muted-foreground mt-2">© 2025 PlantX. All rights reserved.</p>
         </div>
       </div>
 
