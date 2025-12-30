@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { MapPin, Loader2, Link as LinkIcon, Plus, Trash2, Navigation } from "lucide-react";
+import { MapPin, Loader2, Link as LinkIcon, Plus, Trash2, Phone } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -27,26 +27,23 @@ const EditProfileSheet = ({ open, onOpenChange }: EditProfileSheetProps) => {
   const { profile, user, refreshProfile } = useAuth();
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
-  const [isGettingLocation, setIsGettingLocation] = useState(false);
 
-  const [nurseryName, setNurseryName] = useState("");
+  const [displayName, setDisplayName] = useState("");
   const [username, setUsername] = useState("");
   const [bio, setBio] = useState("");
   const [address, setAddress] = useState("");
-  const [latitude, setLatitude] = useState<number | null>(null);
-  const [longitude, setLongitude] = useState<number | null>(null);
+  const [phoneNumber, setPhoneNumber] = useState("");
   const [profileLinks, setProfileLinks] = useState<ProfileLink[]>([]);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
 
   useEffect(() => {
     if (profile) {
-      setNurseryName(profile.nursery_name || "");
+      setDisplayName(profile.nursery_name || "");
       setUsername(profile.username || "");
       setBio(profile.bio || "");
       setAddress(profile.address || "");
-      setLatitude((profile as any).latitude || null);
-      setLongitude((profile as any).longitude || null);
+      setPhoneNumber((profile as any).phone_number || "");
       try {
         const links = (profile as any).profile_links || [];
         setProfileLinks(Array.isArray(links) ? links : []);
@@ -67,112 +64,6 @@ const EditProfileSheet = ({ open, onOpenChange }: EditProfileSheetProps) => {
     }
   };
 
-  const reverseGeocode = async (lat: number, lng: number): Promise<string> => {
-    try {
-      const response = await fetch(
-        `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`,
-        { headers: { 'User-Agent': 'PlantX-App' } }
-      );
-      const data = await response.json();
-      
-      if (data.address) {
-        const parts = [];
-        if (data.address.village || data.address.town || data.address.city) {
-          parts.push(data.address.village || data.address.town || data.address.city);
-        }
-        if (data.address.county || data.address.state_district) {
-          parts.push(data.address.county || data.address.state_district);
-        }
-        if (data.address.state) {
-          parts.push(data.address.state);
-        }
-        if (data.address.country) {
-          parts.push(data.address.country);
-        }
-        return parts.join(", ") || data.display_name || `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
-      }
-      return data.display_name || `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
-    } catch {
-      return `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
-    }
-  };
-
-  const getCurrentLocation = () => {
-    if (!navigator.geolocation) {
-      toast({
-        title: "Geolocation not supported",
-        description: "Your browser doesn't support location services",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    setIsGettingLocation(true);
-
-    // Use getCurrentPosition first for quick response
-    navigator.geolocation.getCurrentPosition(
-      async (position) => {
-        const { latitude: lat, longitude: lng, accuracy } = position.coords;
-        console.log("Location obtained:", { lat, lng, accuracy });
-        
-        setLatitude(lat);
-        setLongitude(lng);
-
-        try {
-          const response = await fetch(
-            `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`,
-            { headers: { 'User-Agent': 'PlantX-App/1.0' } }
-          );
-          const data = await response.json();
-          
-          if (data.address) {
-            const parts = [];
-            const addr = data.address;
-            if (addr.neighbourhood || addr.suburb) parts.push(addr.neighbourhood || addr.suburb);
-            if (addr.village || addr.town || addr.city) parts.push(addr.village || addr.town || addr.city);
-            if (addr.state_district || addr.county) parts.push(addr.state_district || addr.county);
-            if (addr.state) parts.push(addr.state);
-            setAddress(parts.length > 0 ? parts.join(", ") : data.display_name);
-          } else {
-            setAddress(data.display_name || `${lat.toFixed(6)}, ${lng.toFixed(6)}`);
-          }
-        } catch {
-          setAddress(`${lat.toFixed(6)}, ${lng.toFixed(6)}`);
-        }
-        
-        toast({
-          title: "Location updated!",
-          description: `Accuracy: ${Math.round(accuracy)}m`,
-        });
-        setIsGettingLocation(false);
-      },
-      (error) => {
-        console.error("Geolocation error:", error);
-        setIsGettingLocation(false);
-        
-        let message = "Unable to get your location";
-        if (error.code === error.PERMISSION_DENIED) {
-          message = "Please allow location access in your browser settings";
-        } else if (error.code === error.POSITION_UNAVAILABLE) {
-          message = "Location unavailable. Make sure GPS is enabled.";
-        } else if (error.code === error.TIMEOUT) {
-          message = "Location request timed out. Try moving to an open area.";
-        }
-        
-        toast({
-          title: "Location Error",
-          description: message,
-          variant: "destructive",
-        });
-      },
-      {
-        enableHighAccuracy: false, // Use low accuracy for faster response
-        timeout: 5000, // Short timeout
-        maximumAge: 60000, // Allow cached position up to 1 minute old
-      }
-    );
-  };
-
   const addLink = () => {
     setProfileLinks([...profileLinks, { title: "", url: "" }]);
   };
@@ -188,8 +79,13 @@ const EditProfileSheet = ({ open, onOpenChange }: EditProfileSheetProps) => {
   };
 
   const handleSave = async () => {
-    if (!user || !nurseryName || !username) {
+    if (!user || !displayName || !username) {
       toast({ title: "Name and username are required", variant: "destructive" });
+      return;
+    }
+
+    if (!phoneNumber) {
+      toast({ title: "Phone number is required", variant: "destructive" });
       return;
     }
 
@@ -218,12 +114,11 @@ const EditProfileSheet = ({ open, onOpenChange }: EditProfileSheetProps) => {
       const { error } = await supabase
         .from("profiles")
         .update({
-          nursery_name: nurseryName,
+          nursery_name: displayName,
           username: username.toLowerCase().replace(/\s/g, ""),
           bio,
           address,
-          latitude,
-          longitude,
+          phone_number: phoneNumber,
           profile_image: profileImageUrl,
           profile_links: JSON.parse(JSON.stringify(profileLinks)),
         })
@@ -240,6 +135,8 @@ const EditProfileSheet = ({ open, onOpenChange }: EditProfileSheetProps) => {
       setIsLoading(false);
     }
   };
+
+  const userType = (profile as any)?.user_type || "normal";
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -271,9 +168,9 @@ const EditProfileSheet = ({ open, onOpenChange }: EditProfileSheetProps) => {
           </div>
 
           <Input
-            placeholder="Nursery Name *"
-            value={nurseryName}
-            onChange={(e) => setNurseryName(e.target.value)}
+            placeholder={userType === "nursery" ? "Nursery Name *" : "Your Name *"}
+            value={displayName}
+            onChange={(e) => setDisplayName(e.target.value)}
             className="h-12 rounded-xl"
           />
 
@@ -284,6 +181,17 @@ const EditProfileSheet = ({ open, onOpenChange }: EditProfileSheetProps) => {
             className="h-12 rounded-xl"
           />
 
+          <div className="relative">
+            <Phone className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+            <Input
+              type="tel"
+              placeholder="Phone Number *"
+              value={phoneNumber}
+              onChange={(e) => setPhoneNumber(e.target.value)}
+              className="h-12 rounded-xl pl-12"
+            />
+          </div>
+
           <Textarea
             placeholder="Bio"
             value={bio}
@@ -292,41 +200,12 @@ const EditProfileSheet = ({ open, onOpenChange }: EditProfileSheetProps) => {
             rows={3}
           />
 
-          {/* Location Section with GPS */}
+          {/* Location Section */}
           <div className="space-y-3 p-4 bg-secondary rounded-xl">
             <div className="flex items-center gap-2 mb-2">
               <MapPin className="w-4 h-4 text-primary" />
               <span className="font-medium text-sm">Location</span>
             </div>
-            
-            <Button
-              type="button"
-              variant="outline"
-              onClick={getCurrentLocation}
-              disabled={isGettingLocation}
-              className="w-full h-11 rounded-xl flex items-center justify-center gap-2"
-            >
-              {isGettingLocation ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Detecting location...
-                </>
-              ) : (
-                <>
-                  <Navigation className="w-4 h-4" />
-                  Use my current location
-                </>
-              )}
-            </Button>
-
-            {latitude && longitude && (
-              <div className="p-2 bg-primary/10 rounded-lg flex items-center gap-2">
-                <MapPin className="w-4 h-4 text-primary" />
-                <span className="text-xs text-primary font-medium">
-                  GPS: {latitude.toFixed(4)}, {longitude.toFixed(4)}
-                </span>
-              </div>
-            )}
             
             <Input
               placeholder="Enter your address"
@@ -336,7 +215,7 @@ const EditProfileSheet = ({ open, onOpenChange }: EditProfileSheetProps) => {
             />
             
             <p className="text-xs text-muted-foreground">
-              Location helps customers find you on Google Maps
+              Your address will be displayed on your profile
             </p>
           </div>
 
@@ -371,7 +250,7 @@ const EditProfileSheet = ({ open, onOpenChange }: EditProfileSheetProps) => {
 
           <Button
             onClick={handleSave}
-            disabled={isLoading || !nurseryName || !username}
+            disabled={isLoading || !displayName || !username || !phoneNumber}
             className="w-full h-12 rounded-xl mt-4"
           >
             {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : "Save Changes"}

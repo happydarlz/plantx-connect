@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Bookmark,
@@ -13,6 +13,7 @@ import {
   Moon,
   User,
   Heart,
+  Sun,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
@@ -29,40 +30,62 @@ interface SettingsSheetProps {
   onOpenChange: (open: boolean) => void;
 }
 
-const settingsItems = [
-  { icon: Bookmark, label: "Saved", description: "View your saved posts" },
-  { icon: Clock, label: "Your Activity", description: "Time spent, interactions" },
-  { icon: Heart, label: "Liked Posts", description: "Posts you've liked" },
-  { icon: Bell, label: "Notifications", description: "Push, email, SMS" },
-  { icon: Lock, label: "Privacy", description: "Account privacy settings" },
-  { icon: Shield, label: "Security", description: "Password, login activity" },
-  { icon: User, label: "Account", description: "Personal information" },
-  { icon: HelpCircle, label: "Help", description: "Help center, contact us" },
-  { icon: Info, label: "About", description: "App version, terms" },
-];
-
 const SettingsSheet = ({ open, onOpenChange }: SettingsSheetProps) => {
   const { signOut } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
-  const [darkMode, setDarkMode] = useState(false);
+  const [darkMode, setDarkMode] = useState(() => {
+    if (typeof window !== "undefined") {
+      return document.documentElement.classList.contains("dark");
+    }
+    return false;
+  });
+
+  useEffect(() => {
+    if (darkMode) {
+      document.documentElement.classList.add("dark");
+      localStorage.setItem("theme", "dark");
+    } else {
+      document.documentElement.classList.remove("dark");
+      localStorage.setItem("theme", "light");
+    }
+  }, [darkMode]);
+
+  // Initialize from localStorage
+  useEffect(() => {
+    const savedTheme = localStorage.getItem("theme");
+    if (savedTheme === "dark") {
+      setDarkMode(true);
+      document.documentElement.classList.add("dark");
+    }
+  }, []);
 
   const handleSignOut = async () => {
     await signOut();
     toast({
       title: "Signed out",
-      description: "See you next time! 🌱",
+      description: "See you next time!",
     });
     navigate("/auth");
     onOpenChange(false);
   };
 
-  const handleItemClick = (label: string) => {
-    toast({
-      title: label,
-      description: "This feature is coming soon!",
-    });
+  const handleNavigation = (path: string) => {
+    onOpenChange(false);
+    navigate(path);
   };
+
+  const settingsItems = [
+    { icon: Bookmark, label: "Saved", description: "View your saved posts", path: "/saved" },
+    { icon: Clock, label: "Your Activity", description: "Time spent, interactions", path: "/activity" },
+    { icon: Heart, label: "Liked Posts", description: "Posts you've liked", path: "/liked" },
+    { icon: Bell, label: "Notifications", description: "Notification settings", path: null },
+    { icon: Lock, label: "Privacy", description: "Privacy policy", path: "/privacy" },
+    { icon: Shield, label: "Security", description: "Password, login activity", path: null },
+    { icon: User, label: "Account", description: "Personal information", path: "/account" },
+    { icon: HelpCircle, label: "Help", description: "Help center, contact us", path: "/help" },
+    { icon: Info, label: "About", description: "App version, terms", path: "/about" },
+  ];
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -75,7 +98,11 @@ const SettingsSheet = ({ open, onOpenChange }: SettingsSheetProps) => {
           {/* Dark Mode Toggle */}
           <div className="px-4 py-3 flex items-center justify-between border-b border-border">
             <div className="flex items-center gap-3">
-              <Moon className="w-5 h-5 text-muted-foreground" />
+              {darkMode ? (
+                <Moon className="w-5 h-5 text-muted-foreground" />
+              ) : (
+                <Sun className="w-5 h-5 text-muted-foreground" />
+              )}
               <span className="text-foreground">Dark Mode</span>
             </div>
             <Switch checked={darkMode} onCheckedChange={setDarkMode} />
@@ -85,7 +112,7 @@ const SettingsSheet = ({ open, onOpenChange }: SettingsSheetProps) => {
           {settingsItems.map((item) => (
             <button
               key={item.label}
-              onClick={() => handleItemClick(item.label)}
+              onClick={() => item.path ? handleNavigation(item.path) : toast({ title: item.label, description: "Coming soon!" })}
               className="w-full px-4 py-3 flex items-center justify-between border-b border-border hover:bg-secondary/50 transition-colors"
             >
               <div className="flex items-center gap-3">

@@ -18,34 +18,10 @@ interface CreateSheetProps {
   onOpenChange: (open: boolean) => void;
 }
 
-const createOptions = [
-  {
-    id: "post" as CreateType,
-    icon: ImagePlus,
-    title: "Create Post",
-    description: "Share with your followers",
-    color: "bg-primary",
-  },
-  {
-    id: "plant" as CreateType,
-    icon: Leaf,
-    title: "Add Plant",
-    description: "List a plant for others",
-    color: "bg-accent",
-  },
-  {
-    id: "reel" as CreateType,
-    icon: Video,
-    title: "Create Reel",
-    description: "Share a short video",
-    color: "bg-orange-500",
-  },
-];
-
 const CreateSheet = ({ open, onOpenChange }: CreateSheetProps) => {
   const navigate = useNavigate();
   const { toast } = useToast();
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const [selected, setSelected] = useState<CreateType>(null);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -62,10 +38,40 @@ const CreateSheet = ({ open, onOpenChange }: CreateSheetProps) => {
   const [caption, setCaption] = useState("");
   const [tags, setTags] = useState("");
 
-  // Media editor states
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingIndex, setEditingIndex] = useState(0);
   const [editedMediaData, setEditedMediaData] = useState<Record<number, EditedMediaData>>({});
+
+  const userType = (profile as any)?.user_type || "normal";
+  const isNursery = userType === "nursery";
+
+  // Filter create options based on user type
+  const createOptions = [
+    {
+      id: "post" as CreateType,
+      icon: ImagePlus,
+      title: "Create Post",
+      description: "Share with your followers",
+      color: "bg-primary",
+      available: true,
+    },
+    {
+      id: "plant" as CreateType,
+      icon: Leaf,
+      title: "Add Plant",
+      description: "List a plant for others",
+      color: "bg-accent",
+      available: isNursery,
+    },
+    {
+      id: "reel" as CreateType,
+      icon: Video,
+      title: "Create Reel",
+      description: "Share a short video",
+      color: "bg-orange-500",
+      available: true,
+    },
+  ].filter((option) => option.available);
 
   const resetForm = () => {
     setSelected(null);
@@ -162,7 +168,7 @@ const CreateSheet = ({ open, onOpenChange }: CreateSheetProps) => {
       });
 
       if (error) throw error;
-      toast({ title: "Plant added! 🌱" });
+      toast({ title: "Plant added!" });
       handleClose();
     } catch (error) {
       toast({ title: "Error", description: "Failed to add plant", variant: "destructive" });
@@ -180,7 +186,6 @@ const CreateSheet = ({ open, onOpenChange }: CreateSheetProps) => {
 
       if (!imageUrls.length) throw new Error("Failed to upload images");
 
-      // Include post name and filter info in caption if applied
       const editData = editedMediaData[0];
       let finalCaption = postName ? `${postName}${caption ? ` - ${caption}` : ""}` : caption || "";
       if (editData?.filter && editData.filter !== "Normal") {
@@ -196,7 +201,7 @@ const CreateSheet = ({ open, onOpenChange }: CreateSheetProps) => {
       });
 
       if (error) throw error;
-      toast({ title: "Posted! 🌿" });
+      toast({ title: "Posted!" });
       handleClose();
     } catch (error) {
       toast({ title: "Error", description: "Failed to create post", variant: "destructive" });
@@ -214,7 +219,6 @@ const CreateSheet = ({ open, onOpenChange }: CreateSheetProps) => {
 
       if (!videoUrls.length) throw new Error("Failed to upload video");
 
-      // Include filter and music info in caption
       const editData = editedMediaData[0];
       let finalCaption = caption || "";
       if (editData?.filter && editData.filter !== "Normal") {
@@ -234,7 +238,7 @@ const CreateSheet = ({ open, onOpenChange }: CreateSheetProps) => {
       });
 
       if (error) throw error;
-      toast({ title: "Reel posted! 🎬" });
+      toast({ title: "Reel posted!" });
       handleClose();
       navigate("/reels");
     } catch (error) {
@@ -307,6 +311,12 @@ const CreateSheet = ({ open, onOpenChange }: CreateSheetProps) => {
                       </div>
                     </motion.button>
                   ))}
+                  
+                  {!isNursery && (
+                    <p className="text-xs text-muted-foreground text-center pt-2">
+                      Want to list plants? Switch to a Nursery account in settings.
+                    </p>
+                  )}
                 </motion.div>
               ) : selected === "plant" ? (
                 <motion.div
@@ -371,14 +381,12 @@ const CreateSheet = ({ open, onOpenChange }: CreateSheetProps) => {
                               className="w-full h-full object-cover"
                               style={editedMediaData[index]?.filterStyle || {}}
                             />
-                            {/* Edit button */}
                             <button 
                               onClick={() => openEditor(index)}
                               className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
                             >
                               <Wand2 className="w-5 h-5 text-white" />
                             </button>
-                            {/* Has edits indicator */}
                             {hasEdits(index) && (
                               <div className="absolute bottom-0.5 left-0.5 w-4 h-4 bg-primary rounded-full flex items-center justify-center">
                                 <Wand2 className="w-2.5 h-2.5 text-primary-foreground" />
@@ -411,7 +419,6 @@ const CreateSheet = ({ open, onOpenChange }: CreateSheetProps) => {
                                   className="w-full h-full object-cover"
                                   style={editedMediaData[0]?.filterStyle || {}}
                                 />
-                                {/* Has edits indicator */}
                                 {hasEdits(0) && (
                                   <div className="absolute top-2 left-2 px-2 py-1 bg-primary/80 rounded-full flex items-center gap-1">
                                     <Wand2 className="w-3 h-3 text-primary-foreground" />
@@ -422,46 +429,52 @@ const CreateSheet = ({ open, onOpenChange }: CreateSheetProps) => {
                             ) : (
                               <>
                                 <Upload className="w-10 h-10 text-muted-foreground" />
-                                <p className="text-muted-foreground text-sm">Tap to add video</p>
+                                <span className="text-sm text-muted-foreground">Tap to upload video</span>
                               </>
                             )}
                           </div>
                         </label>
-                        
-                        {/* Edit Button for Reel */}
                         {imagePreviews[0] && (
                           <Button 
                             variant="outline" 
-                            onClick={() => openEditor(0)}
-                            className="w-full h-11 rounded-xl gap-2"
+                            onClick={() => openEditor(0)} 
+                            className="w-full rounded-xl"
                           >
-                            <Wand2 className="w-4 h-4" />
-                            Add Filters, Text, Music & Stickers
+                            <Wand2 className="w-4 h-4 mr-2" />
+                            Edit Video
                           </Button>
                         )}
                       </div>
                     )}
                   </div>
-                  
-                  {/* Show edit button for posts when images selected */}
-                  {selected === "post" && imagePreviews.length > 0 && (
-                    <Button 
-                      variant="outline" 
-                      onClick={() => openEditor(0)}
-                      className="w-full h-10 rounded-xl gap-2 text-sm"
-                    >
-                      <Wand2 className="w-4 h-4" />
-                      Edit First Photo (Filters, Text, Stickers)
-                    </Button>
-                  )}
-                  
+
                   {selected === "post" && (
-                    <Input placeholder="Post Name" value={postName} onChange={(e) => setPostName(e.target.value)} className="h-11 rounded-xl" />
+                    <Input 
+                      placeholder="Post Name" 
+                      value={postName} 
+                      onChange={(e) => setPostName(e.target.value)} 
+                      className="h-11 rounded-xl" 
+                    />
                   )}
-                  <Textarea placeholder="Write a caption..." value={caption} onChange={(e) => setCaption(e.target.value)} className="rounded-xl" rows={3} />
-                  <Input placeholder="Tags (comma separated)" value={tags} onChange={(e) => setTags(e.target.value)} className="h-11 rounded-xl" />
-                  <Button onClick={handleSubmit} disabled={!imageFiles.length || isLoading} className="w-full h-11 rounded-xl">
-                    {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : selected === "post" ? "Post" : "Upload Reel"}
+                  <Textarea 
+                    placeholder="Write a caption..." 
+                    value={caption} 
+                    onChange={(e) => setCaption(e.target.value)} 
+                    className="rounded-xl" 
+                    rows={3} 
+                  />
+                  <Input 
+                    placeholder="Tags (comma separated)" 
+                    value={tags} 
+                    onChange={(e) => setTags(e.target.value)} 
+                    className="h-11 rounded-xl" 
+                  />
+                  <Button 
+                    onClick={handleSubmit} 
+                    disabled={!imageFiles.length || isLoading} 
+                    className="w-full h-11 rounded-xl"
+                  >
+                    {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : selected === "reel" ? "Post Reel" : "Share Post"}
                   </Button>
                 </motion.div>
               )}
@@ -470,7 +483,6 @@ const CreateSheet = ({ open, onOpenChange }: CreateSheetProps) => {
         </SheetContent>
       </Sheet>
 
-      {/* Media Editor */}
       {imagePreviews[editingIndex] && (
         <MediaEditor
           open={editorOpen}
