@@ -414,10 +414,12 @@ export type Database = {
           latitude: number | null
           longitude: number | null
           nursery_name: string
+          phone_number: string | null
           profile_image: string | null
           profile_links: Json | null
           updated_at: string
           user_id: string
+          user_type: string | null
           username: string
         }
         Insert: {
@@ -428,10 +430,12 @@ export type Database = {
           latitude?: number | null
           longitude?: number | null
           nursery_name: string
+          phone_number?: string | null
           profile_image?: string | null
           profile_links?: Json | null
           updated_at?: string
           user_id: string
+          user_type?: string | null
           username: string
         }
         Update: {
@@ -442,10 +446,12 @@ export type Database = {
           latitude?: number | null
           longitude?: number | null
           nursery_name?: string
+          phone_number?: string | null
           profile_image?: string | null
           profile_links?: Json | null
           updated_at?: string
           user_id?: string
+          user_type?: string | null
           username?: string
         }
         Relationships: []
