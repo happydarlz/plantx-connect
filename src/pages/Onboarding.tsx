@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Camera, MapPin, ArrowRight, ArrowLeft, Check, Loader2, Navigation } from "lucide-react";
+import { Camera, MapPin, ArrowRight, ArrowLeft, Check, Loader2, Phone } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -10,12 +10,6 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 
-const steps = [
-  { id: 1, title: "Profile Photo", subtitle: "Let others see your nursery" },
-  { id: 2, title: "Nursery Details", subtitle: "Tell us about your nursery" },
-  { id: 3, title: "Location", subtitle: "Where can customers find you?" },
-];
-
 const Onboarding = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -23,16 +17,29 @@ const Onboarding = () => {
   const [currentStep, setCurrentStep] = useState(1);
   const [isLoading, setIsLoading] = useState(false);
 
+  // Get user metadata for type and phone
+  const [userType, setUserType] = useState<string>("normal");
+  const [phoneNumber, setPhoneNumber] = useState("");
+
   // Form states
   const [profileImage, setProfileImage] = useState<File | null>(null);
   const [profileImagePreview, setProfileImagePreview] = useState<string | null>(null);
-  const [nurseryName, setNurseryName] = useState("");
+  const [displayName, setDisplayName] = useState("");
   const [username, setUsername] = useState("");
   const [bio, setBio] = useState("");
   const [address, setAddress] = useState("");
-  const [latitude, setLatitude] = useState<number | null>(null);
-  const [longitude, setLongitude] = useState<number | null>(null);
-  const [isGettingLocation, setIsGettingLocation] = useState(false);
+
+  const steps = userType === "nursery" 
+    ? [
+        { id: 1, title: "Profile Photo", subtitle: "Let others see your nursery" },
+        { id: 2, title: "Nursery Details", subtitle: "Tell us about your nursery" },
+        { id: 3, title: "Location", subtitle: "Where can customers find you?" },
+      ]
+    : [
+        { id: 1, title: "Profile Photo", subtitle: "Add a profile picture" },
+        { id: 2, title: "Your Details", subtitle: "Tell us about yourself" },
+        { id: 3, title: "Location", subtitle: "Where are you located?" },
+      ];
 
   // Redirect if already has profile
   useEffect(() => {
@@ -41,10 +48,19 @@ const Onboarding = () => {
     }
   }, [profile, navigate]);
 
-  // Redirect if not logged in
+  // Redirect if not logged in and get user metadata
   useEffect(() => {
     if (!user) {
       navigate("/auth");
+    } else {
+      // Get metadata from signup
+      const metadata = user.user_metadata;
+      if (metadata?.user_type) {
+        setUserType(metadata.user_type);
+      }
+      if (metadata?.phone_number) {
+        setPhoneNumber(metadata.phone_number);
+      }
     }
   }, [user, navigate]);
 
@@ -58,112 +74,6 @@ const Onboarding = () => {
       };
       reader.readAsDataURL(file);
     }
-  };
-
-  const reverseGeocode = async (lat: number, lng: number): Promise<string> => {
-    try {
-      const response = await fetch(
-        `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`,
-        { headers: { 'User-Agent': 'PlantX-App' } }
-      );
-      const data = await response.json();
-      
-      if (data.address) {
-        const parts = [];
-        if (data.address.village || data.address.town || data.address.city) {
-          parts.push(data.address.village || data.address.town || data.address.city);
-        }
-        if (data.address.county || data.address.state_district) {
-          parts.push(data.address.county || data.address.state_district);
-        }
-        if (data.address.state) {
-          parts.push(data.address.state);
-        }
-        if (data.address.country) {
-          parts.push(data.address.country);
-        }
-        return parts.join(", ") || data.display_name || `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
-      }
-      return data.display_name || `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
-    } catch {
-      return `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
-    }
-  };
-
-  const getCurrentLocation = () => {
-    if (!navigator.geolocation) {
-      toast({
-        title: "Geolocation not supported",
-        description: "Your browser doesn't support location services",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    setIsGettingLocation(true);
-
-    // Use getCurrentPosition for quick response
-    navigator.geolocation.getCurrentPosition(
-      async (position) => {
-        const { latitude: lat, longitude: lng, accuracy } = position.coords;
-        console.log("Location obtained:", { lat, lng, accuracy });
-        
-        setLatitude(lat);
-        setLongitude(lng);
-
-        try {
-          const response = await fetch(
-            `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`,
-            { headers: { 'User-Agent': 'PlantX-App/1.0' } }
-          );
-          const data = await response.json();
-          
-          if (data.address) {
-            const parts = [];
-            const addr = data.address;
-            if (addr.neighbourhood || addr.suburb) parts.push(addr.neighbourhood || addr.suburb);
-            if (addr.village || addr.town || addr.city) parts.push(addr.village || addr.town || addr.city);
-            if (addr.state_district || addr.county) parts.push(addr.state_district || addr.county);
-            if (addr.state) parts.push(addr.state);
-            setAddress(parts.length > 0 ? parts.join(", ") : data.display_name);
-          } else {
-            setAddress(data.display_name || `${lat.toFixed(6)}, ${lng.toFixed(6)}`);
-          }
-        } catch {
-          setAddress(`${lat.toFixed(6)}, ${lng.toFixed(6)}`);
-        }
-        
-        toast({
-          title: "Location detected!",
-          description: `Accuracy: ${Math.round(accuracy)}m`,
-        });
-        setIsGettingLocation(false);
-      },
-      (error) => {
-        console.error("Geolocation error:", error);
-        setIsGettingLocation(false);
-        
-        let message = "Unable to get your location";
-        if (error.code === error.PERMISSION_DENIED) {
-          message = "Please allow location access in your browser settings";
-        } else if (error.code === error.POSITION_UNAVAILABLE) {
-          message = "Location unavailable. Make sure GPS is enabled.";
-        } else if (error.code === error.TIMEOUT) {
-          message = "Location request timed out. Try moving to an open area.";
-        }
-        
-        toast({
-          title: "Location Error",
-          description: message,
-          variant: "destructive",
-        });
-      },
-      {
-        enableHighAccuracy: false, // Use low accuracy for faster response
-        timeout: 5000, // Short timeout
-        maximumAge: 60000, // Allow cached position up to 1 minute old
-      }
-    );
   };
 
   const handleNext = () => {
@@ -190,10 +100,20 @@ const Onboarding = () => {
   };
 
   const handleComplete = async () => {
-    if (!nurseryName || !username) {
+    if (!displayName || !username) {
       toast({
         title: "Missing information",
-        description: "Please fill in your nursery name and username",
+        description: "Please fill in your name and username",
+        variant: "destructive",
+      });
+      setCurrentStep(2);
+      return;
+    }
+
+    if (!phoneNumber) {
+      toast({
+        title: "Phone number required",
+        description: "Please enter your phone number",
         variant: "destructive",
       });
       setCurrentStep(2);
@@ -247,15 +167,15 @@ const Onboarding = () => {
         }
       }
 
-      // Create profile with location
+      // Create profile
       const { error } = await supabase.from("profiles").insert({
         user_id: user.id,
-        nursery_name: nurseryName,
+        nursery_name: displayName,
         username: username.toLowerCase().replace(/\s/g, ""),
         bio,
         address,
-        latitude,
-        longitude,
+        phone_number: phoneNumber,
+        user_type: userType,
         profile_image: profileImageUrl,
       });
 
@@ -269,8 +189,8 @@ const Onboarding = () => {
       } else {
         await refreshProfile();
         toast({
-          title: "Welcome to PlantX! 🌱",
-          description: "Your nursery profile is ready",
+          title: "Welcome to PlantX!",
+          description: "Your profile is ready",
         });
         navigate("/home");
       }
@@ -291,7 +211,7 @@ const Onboarding = () => {
       case 1:
         return true; // Image is optional
       case 2:
-        return nurseryName && username;
+        return displayName && username && phoneNumber;
       case 3:
         return true; // Address is optional
       default:
@@ -369,7 +289,7 @@ const Onboarding = () => {
                 </div>
               </label>
               <p className="text-sm text-muted-foreground mt-4">
-                Tap to upload your nursery photo
+                Tap to upload your profile photo
               </p>
             </motion.div>
           )}
@@ -384,12 +304,12 @@ const Onboarding = () => {
             >
               <div>
                 <label className="text-sm font-medium text-foreground mb-2 block">
-                  Nursery Name *
+                  {userType === "nursery" ? "Nursery Name *" : "Your Name *"}
                 </label>
                 <Input
-                  placeholder="e.g., Green Paradise Nursery"
-                  value={nurseryName}
-                  onChange={(e) => setNurseryName(e.target.value)}
+                  placeholder={userType === "nursery" ? "e.g., Green Paradise Nursery" : "e.g., John Doe"}
+                  value={displayName}
+                  onChange={(e) => setDisplayName(e.target.value)}
                   className="h-12 rounded-xl"
                 />
               </div>
@@ -402,7 +322,7 @@ const Onboarding = () => {
                     @
                   </span>
                   <Input
-                    placeholder="greenparadise"
+                    placeholder="username"
                     value={username}
                     onChange={(e) => setUsername(e.target.value.toLowerCase().replace(/\s/g, ""))}
                     className="h-12 rounded-xl pl-9"
@@ -411,10 +331,26 @@ const Onboarding = () => {
               </div>
               <div>
                 <label className="text-sm font-medium text-foreground mb-2 block">
+                  Phone Number *
+                </label>
+                <div className="relative">
+                  <Phone className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+                  <Input
+                    type="tel"
+                    placeholder="+91 XXXXXXXXXX"
+                    value={phoneNumber}
+                    onChange={(e) => setPhoneNumber(e.target.value)}
+                    className="h-12 rounded-xl pl-12"
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">Others can contact you via this number</p>
+              </div>
+              <div>
+                <label className="text-sm font-medium text-foreground mb-2 block">
                   Bio / Tagline
                 </label>
                 <Textarea
-                  placeholder="Tell customers about your nursery..."
+                  placeholder={userType === "nursery" ? "Tell customers about your nursery..." : "Tell us about yourself..."}
                   value={bio}
                   onChange={(e) => setBio(e.target.value)}
                   className="rounded-xl resize-none"
@@ -432,42 +368,6 @@ const Onboarding = () => {
               exit={{ opacity: 0, x: -20 }}
               className="space-y-4"
             >
-              {/* Auto-detect location button */}
-              <Button
-                type="button"
-                variant="outline"
-                onClick={getCurrentLocation}
-                disabled={isGettingLocation}
-                className="w-full h-12 rounded-xl flex items-center justify-center gap-2"
-              >
-                {isGettingLocation ? (
-                  <>
-                    <Loader2 className="w-5 h-5 animate-spin" />
-                    Detecting location...
-                  </>
-                ) : (
-                  <>
-                    <Navigation className="w-5 h-5" />
-                    Use my current location
-                  </>
-                )}
-              </Button>
-
-              {latitude && longitude && (
-                <div className="p-3 bg-primary/10 rounded-xl flex items-center gap-2">
-                  <MapPin className="w-5 h-5 text-primary" />
-                  <span className="text-sm text-primary font-medium">
-                    Location detected: {latitude.toFixed(4)}, {longitude.toFixed(4)}
-                  </span>
-                </div>
-              )}
-
-              <div className="flex items-center gap-4">
-                <div className="flex-1 h-px bg-border" />
-                <span className="text-sm text-muted-foreground">or enter manually</span>
-                <div className="flex-1 h-px bg-border" />
-              </div>
-
               <div>
                 <label className="text-sm font-medium text-foreground mb-2 block">
                   Address
@@ -475,7 +375,7 @@ const Onboarding = () => {
                 <div className="relative">
                   <MapPin className="absolute left-4 top-4 w-5 h-5 text-muted-foreground" />
                   <Textarea
-                    placeholder="Enter your nursery address..."
+                    placeholder="Enter your address..."
                     value={address}
                     onChange={(e) => setAddress(e.target.value)}
                     className="rounded-xl resize-none pl-12"
@@ -485,7 +385,7 @@ const Onboarding = () => {
               </div>
 
               <p className="text-xs text-muted-foreground text-center">
-                Your location helps customers find your nursery on Google Maps
+                Your address will be displayed on your profile
               </p>
             </motion.div>
           )}
@@ -500,11 +400,7 @@ const Onboarding = () => {
           className="w-full h-12 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground font-semibold"
         >
           {isLoading ? (
-            <motion.div
-              className="w-5 h-5 border-2 border-primary-foreground/30 border-t-primary-foreground rounded-full"
-              animate={{ rotate: 360 }}
-              transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-            />
+            <Loader2 className="w-5 h-5 animate-spin" />
           ) : currentStep === 3 ? (
             <>
               Complete Setup
@@ -522,10 +418,9 @@ const Onboarding = () => {
           <Button
             variant="ghost"
             onClick={handleBack}
-            className="w-full h-12 rounded-xl text-muted-foreground"
-            disabled={isLoading}
+            className="w-full h-10 text-muted-foreground"
           >
-            <ArrowLeft className="mr-2 w-5 h-5" />
+            <ArrowLeft className="mr-2 w-4 h-4" />
             Back
           </Button>
         )}

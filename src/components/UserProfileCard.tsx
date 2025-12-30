@@ -1,11 +1,10 @@
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { MapPin, Link as LinkIcon, Grid3X3, Leaf, MessageCircle, ExternalLink, Loader2 } from "lucide-react";
+import { MapPin, Link as LinkIcon, Grid3X3, Leaf, Phone } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
-import { useNavigate } from "react-router-dom";
 import BottomNav from "@/components/BottomNav";
 
 interface UserProfileCardProps {
@@ -19,8 +18,8 @@ interface ProfileData {
   bio: string | null;
   profile_image: string | null;
   address: string | null;
-  latitude: number | null;
-  longitude: number | null;
+  phone_number: string | null;
+  user_type: string | null;
   profile_links: { title: string; url: string }[];
 }
 
@@ -34,7 +33,6 @@ interface Stats {
 const UserProfileCard = ({ userId, username }: UserProfileCardProps) => {
   const { user } = useAuth();
   const { toast } = useToast();
-  const navigate = useNavigate();
   const [profile, setProfile] = useState<ProfileData | null>(null);
   const [stats, setStats] = useState<Stats>({ postsCount: 0, plantsCount: 0, followers: 0, following: 0 });
   const [posts, setPosts] = useState<{ id: string; image_url: string }[]>([]);
@@ -68,8 +66,8 @@ const UserProfileCard = ({ userId, username }: UserProfileCardProps) => {
           bio: profileData.bio,
           profile_image: profileData.profile_image,
           address: profileData.address,
-          latitude: profileData.latitude,
-          longitude: profileData.longitude,
+          phone_number: (profileData as any).phone_number || null,
+          user_type: (profileData as any).user_type || "normal",
           profile_links: parsedLinks,
         });
       }
@@ -152,83 +150,11 @@ const UserProfileCard = ({ userId, username }: UserProfileCardProps) => {
     }
   };
 
-  const [isStartingChat, setIsStartingChat] = useState(false);
-
-  const handleMessage = async () => {
-    if (!user) {
-      toast({ title: "Please sign in to message", variant: "destructive" });
-      return;
-    }
-
-    if (isStartingChat) return;
-    setIsStartingChat(true);
-
-    try {
-      // Check if chat already exists
-      const { data: myChats } = await supabase
-        .from("chat_participants")
-        .select("chat_id")
-        .eq("user_id", user.id);
-
-      if (myChats && myChats.length > 0) {
-        for (const chat of myChats) {
-          const { data: otherUser } = await supabase
-            .from("chat_participants")
-            .select("user_id")
-            .eq("chat_id", chat.chat_id)
-            .eq("user_id", userId)
-            .maybeSingle();
-
-          if (otherUser) {
-            navigate("/chat");
-            return;
-          }
-        }
-      }
-
-      // Create new chat
-      const { data: newChat, error: chatError } = await supabase
-        .from("chats")
-        .insert({})
-        .select("id")
-        .single();
-
-      if (chatError) throw chatError;
-
-      // Add both participants
-      const { error: p1Error } = await supabase
-        .from("chat_participants")
-        .insert({ chat_id: newChat.id, user_id: user.id });
-
-      if (p1Error) throw p1Error;
-
-      const { error: p2Error } = await supabase
-        .from("chat_participants")
-        .insert({ chat_id: newChat.id, user_id: userId });
-
-      if (p2Error) throw p2Error;
-
-      toast({ title: "Chat started!" });
-      navigate("/chat");
-    } catch (error: any) {
-      console.error("Chat error:", error);
-      toast({ 
-        title: "Could not start chat", 
-        description: error.message, 
-        variant: "destructive" 
-      });
-    } finally {
-      setIsStartingChat(false);
-    }
-  };
-
-  const openInGoogleMaps = () => {
-    if (profile?.latitude && profile?.longitude) {
-      const url = `https://www.google.com/maps?q=${profile.latitude},${profile.longitude}`;
-      window.open(url, "_blank");
-    } else if (profile?.address) {
-      const url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(profile.address)}`;
-      window.open(url, "_blank");
+  const handleCall = () => {
+    if (profile?.phone_number) {
+      window.location.href = `tel:${profile.phone_number}`;
+    } else {
+      toast({ title: "No phone number available", variant: "destructive" });
     }
   };
 
@@ -243,6 +169,8 @@ const UserProfileCard = ({ userId, username }: UserProfileCardProps) => {
       </div>
     );
   }
+
+  const isNursery = profile.user_type === "nursery";
 
   return (
     <div className="min-h-screen bg-background pb-20">
@@ -280,18 +208,17 @@ const UserProfileCard = ({ userId, username }: UserProfileCardProps) => {
 
         <div className="mt-4">
           <h2 className="font-semibold text-foreground">{profile.nursery_name}</h2>
+          {!isNursery && (
+            <span className="text-xs bg-secondary px-2 py-0.5 rounded-full text-muted-foreground">User</span>
+          )}
           {profile.bio && <p className="text-sm text-foreground mt-1">{profile.bio}</p>}
           
-          {/* Location with Google Maps Link */}
-          {(profile.address || (profile.latitude && profile.longitude)) && (
-            <button
-              onClick={openInGoogleMaps}
-              className="flex items-center gap-1.5 text-sm text-primary mt-2 hover:underline"
-            >
+          {/* Location - plain text, not clickable */}
+          {profile.address && (
+            <div className="flex items-center gap-1.5 text-sm text-muted-foreground mt-2">
               <MapPin className="w-4 h-4" />
-              <span className="truncate max-w-[250px]">{profile.address || "View Location"}</span>
-              <ExternalLink className="w-3 h-3" />
-            </button>
+              <span className="truncate max-w-[250px]">{profile.address}</span>
+            </div>
           )}
 
           {/* Profile Links */}
@@ -323,14 +250,8 @@ const UserProfileCard = ({ userId, username }: UserProfileCardProps) => {
             >
               {isFollowing ? "Following" : "Follow"}
             </Button>
-            <Button onClick={handleMessage} variant="outline" className="flex-1 h-10 rounded-xl" disabled={isStartingChat}>
-              {isStartingChat ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <>
-                  <MessageCircle className="w-4 h-4 mr-2" /> Message
-                </>
-              )}
+            <Button onClick={handleCall} variant="outline" className="flex-1 h-10 rounded-xl">
+              <Phone className="w-4 h-4 mr-2" /> Call
             </Button>
           </div>
         )}
@@ -346,14 +267,16 @@ const UserProfileCard = ({ userId, username }: UserProfileCardProps) => {
         >
           <Grid3X3 className="w-6 h-6" />
         </button>
-        <button
-          onClick={() => setActiveTab("plants")}
-          className={`flex-1 py-3 flex justify-center ${
-            activeTab === "plants" ? "text-primary border-b-2 border-primary" : "text-muted-foreground"
-          }`}
-        >
-          <Leaf className="w-6 h-6" />
-        </button>
+        {isNursery && (
+          <button
+            onClick={() => setActiveTab("plants")}
+            className={`flex-1 py-3 flex justify-center ${
+              activeTab === "plants" ? "text-primary border-b-2 border-primary" : "text-muted-foreground"
+            }`}
+          >
+            <Leaf className="w-6 h-6" />
+          </button>
+        )}
       </div>
 
       {/* Content */}

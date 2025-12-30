@@ -1,8 +1,10 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { Mail, Lock, Eye, EyeOff, ArrowRight, Leaf } from "lucide-react";
+import { Mail, Lock, Eye, EyeOff, ArrowRight, Leaf, Phone, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import PlantXLogo from "@/components/PlantXLogo";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
@@ -20,6 +22,8 @@ const Auth = () => {
   // Form states
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [phoneNumber, setPhoneNumber] = useState("");
+  const [userType, setUserType] = useState<"normal" | "nursery">("normal");
 
   // Redirect if already logged in
   useEffect(() => {
@@ -51,11 +55,23 @@ const Auth = () => {
       return;
     }
 
+    if (mode === "signup" && !phoneNumber) {
+      toast({
+        title: "Phone number required",
+        description: "Please enter your phone number",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setIsLoading(true);
 
     try {
       if (mode === "signup") {
-        const { error } = await signUp(email, password);
+        const { error } = await signUp(email, password, {
+          phone_number: phoneNumber,
+          user_type: userType,
+        });
         if (error) {
           if (error.message.includes("already registered")) {
             toast({
@@ -73,7 +89,7 @@ const Auth = () => {
         } else {
           toast({
             title: "Account created!",
-            description: "Let's set up your nursery profile",
+            description: "Let's set up your profile",
           });
           navigate("/onboarding");
         }
@@ -114,8 +130,8 @@ const Auth = () => {
   return (
     <div className="min-h-screen bg-background flex flex-col">
       {/* Header with decorative elements */}
-      <div className="relative h-48 flex items-center justify-center overflow-hidden">
-        <div className="absolute -top-10 -left-10 w-40 h-40 rounded-full bg-plantx-soft/30 blur-3xl" />
+      <div className="relative h-40 flex items-center justify-center overflow-hidden">
+        <div className="absolute -top-10 -left-10 w-40 h-40 rounded-full bg-primary/10 blur-3xl" />
         <div className="absolute -top-5 -right-10 w-32 h-32 rounded-full bg-primary/20 blur-3xl" />
         <PlantXLogo size="lg" />
       </div>
@@ -152,6 +168,7 @@ const Auth = () => {
               disabled={isLoading}
             />
           </div>
+
           <div className="relative">
             <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
             <Input
@@ -174,6 +191,40 @@ const Auth = () => {
               )}
             </button>
           </div>
+
+          {mode === "signup" && (
+            <>
+              <div className="relative">
+                <Phone className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+                <Input
+                  type="tel"
+                  placeholder="Phone number *"
+                  value={phoneNumber}
+                  onChange={(e) => setPhoneNumber(e.target.value)}
+                  className="pl-12 h-12 rounded-xl border-border bg-secondary/50"
+                  disabled={isLoading}
+                />
+              </div>
+
+              <div className="p-4 bg-secondary/50 rounded-xl space-y-3">
+                <Label className="text-sm font-medium text-foreground">Account Type</Label>
+                <RadioGroup value={userType} onValueChange={(v) => setUserType(v as "normal" | "nursery")} className="flex gap-4">
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="normal" id="normal" />
+                    <Label htmlFor="normal" className="text-sm cursor-pointer">Normal User</Label>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="nursery" id="nursery" />
+                    <Label htmlFor="nursery" className="text-sm cursor-pointer">Nursery</Label>
+                  </div>
+                </RadioGroup>
+                <p className="text-xs text-muted-foreground">
+                  {userType === "nursery" ? "Nurseries can list plants for sale" : "Normal users can browse and interact"}
+                </p>
+              </div>
+            </>
+          )}
+
           <Button
             onClick={handleEmailAuth}
             disabled={isLoading}
