@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
-import { ArrowLeft, Heart, MessageCircle, Send, Bookmark, ShoppingBag, MapPin, ExternalLink, ChevronLeft, ChevronRight } from "lucide-react";
+import { ArrowLeft, Heart, Phone, Send, Bookmark, ShoppingBag, MapPin, ChevronLeft, ChevronRight, MessageSquare } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
@@ -30,8 +30,7 @@ interface ProfileData {
   profile_image: string | null;
   bio: string | null;
   address: string | null;
-  latitude: number | null;
-  longitude: number | null;
+  phone_number: string | null;
   profile_links: any;
 }
 
@@ -270,15 +269,7 @@ const PlantDetail = () => {
     }
   };
 
-  const openInMaps = () => {
-    if (profile?.latitude && profile?.longitude) {
-      const url = `https://www.google.com/maps?q=${profile.latitude},${profile.longitude}`;
-      window.open(url, "_blank");
-    } else if (profile?.address) {
-      const url = `https://www.google.com/maps/search/${encodeURIComponent(profile.address)}`;
-      window.open(url, "_blank");
-    }
-  };
+  // Removed openInMaps - location is now display only
 
   const handleCall = () => {
     if (profile) {
@@ -370,7 +361,7 @@ const PlantDetail = () => {
               <Heart className={`w-7 h-7 ${isLiked ? "fill-red-500 text-red-500" : "text-foreground"}`} />
             </button>
             <button onClick={() => document.getElementById("comment-input")?.focus()} className="p-1">
-              <MessageCircle className="w-7 h-7 text-foreground" />
+              <MessageSquare className="w-7 h-7 text-foreground" />
             </button>
             <button onClick={handleShare} className="p-1">
               <Send className="w-7 h-7 text-foreground" />
@@ -442,20 +433,20 @@ const PlantDetail = () => {
           {profile.bio && <p className="text-sm text-muted-foreground mb-3">{profile.bio}</p>}
 
           {profile.address && (
-            <button
-              onClick={openInMaps}
-              className="w-full flex items-center gap-2 p-3 bg-secondary rounded-lg mb-3"
-            >
+            <div className="w-full flex items-center gap-2 p-3 bg-secondary rounded-lg mb-3">
               <MapPin className="w-5 h-5 text-primary" />
               <span className="text-sm flex-1 text-left">{profile.address}</span>
-              <ExternalLink className="w-4 h-4 text-muted-foreground" />
-            </button>
+            </div>
           )}
 
-          {user && plant.user_id !== user.id && (
-            <Button onClick={startChat} className="w-full" variant="outline">
-              <MessageCircle className="w-4 h-4 mr-2" />
-              Message Seller
+          {user && plant.user_id !== user.id && profile.phone_number && (
+            <Button 
+              onClick={() => window.location.href = `tel:${profile.phone_number}`} 
+              className="w-full" 
+              variant="outline"
+            >
+              <Phone className="w-4 h-4 mr-2" />
+              Call Seller
             </Button>
           )}
         </div>
