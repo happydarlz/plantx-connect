@@ -9,6 +9,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { formatDistanceToNow } from "date-fns";
+import { sendLikeNotification, sendCommentNotification } from "@/lib/notifications";
 
 interface Comment {
   id: string;
@@ -141,7 +142,9 @@ const ContentDetailSheet = ({
   };
 
   const handleLike = async () => {
-    if (!user) return;
+    if (!user || !content) return;
+
+    const ownerId = content.user_id;
 
     if (contentType === "post") {
       if (isLiked) {
@@ -150,6 +153,16 @@ const ContentDetailSheet = ({
       } else {
         await supabase.from("post_likes").insert({ post_id: contentId, user_id: user.id });
         setLikes((prev) => prev + 1);
+        if (ownerId !== user.id) {
+          await supabase.from("notifications").insert({
+            user_id: ownerId,
+            type: "like",
+            from_user_id: user.id,
+            post_id: contentId,
+          });
+          const { data: profile } = await supabase.from("profiles").select("username").eq("user_id", user.id).maybeSingle();
+          if (profile) sendLikeNotification(profile.username, "post");
+        }
       }
     } else if (contentType === "plant") {
       if (isLiked) {
@@ -158,6 +171,15 @@ const ContentDetailSheet = ({
       } else {
         await supabase.from("plant_likes").insert({ plant_id: contentId, user_id: user.id });
         setLikes((prev) => prev + 1);
+        if (ownerId !== user.id) {
+          await supabase.from("notifications").insert({
+            user_id: ownerId,
+            type: "like",
+            from_user_id: user.id,
+          });
+          const { data: profile } = await supabase.from("profiles").select("username").eq("user_id", user.id).maybeSingle();
+          if (profile) sendLikeNotification(profile.username);
+        }
       }
     } else if (contentType === "reel") {
       if (isLiked) {
@@ -166,16 +188,26 @@ const ContentDetailSheet = ({
       } else {
         await supabase.from("reel_likes").insert({ reel_id: contentId, user_id: user.id });
         setLikes((prev) => prev + 1);
+        if (ownerId !== user.id) {
+          await supabase.from("notifications").insert({
+            user_id: ownerId,
+            type: "like",
+            from_user_id: user.id,
+          });
+          const { data: profile } = await supabase.from("profiles").select("username").eq("user_id", user.id).maybeSingle();
+          if (profile) sendLikeNotification(profile.username, "reel");
+        }
       }
     }
     setIsLiked(!isLiked);
   };
 
   const handleAddComment = async () => {
-    if (!user || !newComment.trim()) return;
+    if (!user || !newComment.trim() || !content) return;
 
     let data: any = null;
     let error: any = null;
+    const ownerId = content.user_id;
 
     if (contentType === "post") {
       const result = await supabase
@@ -212,6 +244,18 @@ const ContentDetailSheet = ({
 
       setComments((prev) => [...prev, { ...data, profile }]);
       setNewComment("");
+
+      // Send notification to content owner
+      if (ownerId !== user.id && profile) {
+        await supabase.from("notifications").insert({
+          user_id: ownerId,
+          type: "comment",
+          from_user_id: user.id,
+          post_id: contentType === "post" ? contentId : null,
+          message_text: newComment.trim().slice(0, 50),
+        });
+        sendCommentNotification(profile.username);
+      }
     }
   };
 

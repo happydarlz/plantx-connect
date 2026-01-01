@@ -58,7 +58,7 @@ const FAQPage = () => {
   return (
     <div className="min-h-screen bg-background pb-20">
       <header className="sticky top-0 bg-background z-40 px-4 py-3 border-b border-border flex items-center gap-3">
-        <Button variant="ghost" size="icon" onClick={() => navigate(-1)}>
+        <Button variant="ghost" size="icon" onClick={() => navigate("/profile")}>
           <ArrowLeft className="w-5 h-5" />
         </Button>
         <h1 className="text-lg font-semibold text-foreground">FAQs</h1>
