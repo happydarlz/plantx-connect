@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { Bell, Leaf } from "lucide-react";
+import { useEffect, useState, useRef, useCallback } from "react";
+import { Bell, Leaf, RefreshCw } from "lucide-react";
 import { motion } from "framer-motion";
 import PlantXLogo from "@/components/PlantXLogo";
 import StoryCircle from "@/components/StoryCircle";
@@ -65,12 +65,48 @@ const Home = () => {
   const [feedItems, setFeedItems] = useState<FeedItem[]>([]);
   const [stories, setStories] = useState<Story[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   
   // Story viewer state
   const [storyViewerOpen, setStoryViewerOpen] = useState(false);
   const [selectedStory, setSelectedStory] = useState<Story | null>(null);
+
+  // Pull to refresh state
+  const [pullDistance, setPullDistance] = useState(0);
+  const [isPulling, setIsPulling] = useState(false);
+  const startY = useRef(0);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const threshold = 80;
+
+  const handleRefresh = useCallback(async () => {
+    setIsRefreshing(true);
+    await Promise.all([fetchFeed(), fetchStories(), fetchUnreadCount()]);
+    setIsRefreshing(false);
+  }, []);
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (containerRef.current && containerRef.current.scrollTop === 0) {
+      startY.current = e.touches[0].clientY;
+      setIsPulling(true);
+    }
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (!isPulling || containerRef.current?.scrollTop !== 0) return;
+    const currentY = e.touches[0].clientY;
+    const distance = Math.max(0, Math.min(currentY - startY.current, 150));
+    setPullDistance(distance);
+  };
+
+  const handleTouchEnd = () => {
+    if (pullDistance >= threshold && !isRefreshing) {
+      handleRefresh();
+    }
+    setPullDistance(0);
+    setIsPulling(false);
+  };
 
   useEffect(() => {
     if (!user) {
@@ -238,7 +274,26 @@ const Home = () => {
   };
 
   return (
-    <div className="min-h-screen bg-background pb-20">
+    <div 
+      ref={containerRef}
+      className="min-h-screen bg-background pb-20 overflow-y-auto"
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
+    >
+      {/* Pull to refresh indicator */}
+      <div 
+        className="flex items-center justify-center transition-all duration-200 overflow-hidden"
+        style={{ height: pullDistance > 0 ? pullDistance : isRefreshing ? 60 : 0 }}
+      >
+        <motion.div
+          animate={{ rotate: isRefreshing ? 360 : pullDistance * 2 }}
+          transition={isRefreshing ? { duration: 1, repeat: Infinity, ease: "linear" } : { duration: 0 }}
+        >
+          <RefreshCw className={`w-6 h-6 ${pullDistance >= threshold || isRefreshing ? 'text-primary' : 'text-muted-foreground'}`} />
+        </motion.div>
+      </div>
+
       {/* Header */}
       <header className="sticky top-0 bg-background/95 backdrop-blur-sm z-40 px-4 py-3 border-b border-border">
         <div className="flex items-center justify-between">
