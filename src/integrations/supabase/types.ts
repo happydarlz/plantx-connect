@@ -575,6 +575,7 @@ export type Database = {
       }
       stories: {
         Row: {
+          caption: string | null
           created_at: string
           expires_at: string
           id: string
@@ -582,6 +583,7 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          caption?: string | null
           created_at?: string
           expires_at?: string
           id?: string
@@ -589,6 +591,7 @@ export type Database = {
           user_id: string
         }
         Update: {
+          caption?: string | null
           created_at?: string
           expires_at?: string
           id?: string

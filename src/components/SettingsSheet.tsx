@@ -78,7 +78,7 @@ const SettingsSheet = ({ open, onOpenChange }: SettingsSheetProps) => {
   const settingsItems = [
     { icon: Bookmark, label: "Saved", description: "View your saved posts", path: "/saved" },
     { icon: Clock, label: "Your Activity", description: "Time spent, interactions", path: "/activity" },
-    { icon: Heart, label: "Liked Posts", description: "Posts you've liked", path: "/liked" },
+    { icon: Heart, label: "Liked Ones", description: "Posts, reels & plants you've liked", path: "/liked" },
     { icon: Bell, label: "Notifications", description: "Notification settings", path: null },
     { icon: Lock, label: "Privacy", description: "Privacy policy", path: "/privacy" },
     { icon: Shield, label: "Security", description: "Password, login activity", path: null },
